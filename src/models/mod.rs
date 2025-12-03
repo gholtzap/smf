@@ -1,0 +1,209 @@
+use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+use crate::types::{Guami, N2SmInfo, PduAddress, PduSessionType, RefToBinaryData, SmContextState, Snssai};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionCreateData {
+    pub supi: String,
+    pub unauthenticated_supi: Option<bool>,
+    pub pei: Option<String>,
+    pub gpsi: Option<String>,
+    pub pdu_session_id: u8,
+    pub dnn: String,
+    pub selected_dnn: Option<String>,
+    pub s_nssai: Snssai,
+    pub serving_network: Option<String>,
+    pub request_type: Option<RequestType>,
+    pub eps_bearer_id: Option<Vec<u8>>,
+    pub pgw_s8c_fteid: Option<String>,
+    pub vsmf_pdu_session_uri: Option<String>,
+    pub ismf_pdu_session_uri: Option<String>,
+    pub vcn_tunnel_info: Option<TunnelInfo>,
+    pub icn_tunnel_info: Option<TunnelInfo>,
+    pub n9_forwarding_tunnel_info: Option<TunnelInfo>,
+    pub additional_cn_tunnel_info: Option<TunnelInfo>,
+    pub an_type: AnType,
+    pub additional_an_type: Option<AnType>,
+    pub rat_type: Option<RatType>,
+    pub ue_location: Option<UserLocation>,
+    pub ue_time_zone: Option<String>,
+    pub add_ue_location: Option<UserLocation>,
+    pub gpsi_list: Option<Vec<String>>,
+    pub n1_sm_msg: Option<RefToBinaryData>,
+    pub guami: Option<Guami>,
+    pub service_name: Option<String>,
+    pub pcf_id: Option<String>,
+    pub pcf_group_id: Option<String>,
+    pub pcf_set_id: Option<String>,
+    pub ho_preparation_indication: Option<bool>,
+    pub sel_mode: Option<DnnSelectionMode>,
+    pub always_on_requested: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RequestType {
+    InitialRequest,
+    ExistingPduSession,
+    InitialEmergencyRequest,
+    ExistingEmergencyPduSession,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelInfo {
+    pub ipv4_addr: Option<String>,
+    pub ipv6_addr: Option<String>,
+    pub gtp_teid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AnType {
+    #[serde(rename = "3GPP_ACCESS")]
+    ThreeGppAccess,
+    #[serde(rename = "NON_3GPP_ACCESS")]
+    NonThreeGppAccess,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RatType {
+    Nr,
+    EutraWb,
+    Wlan,
+    VirtualNr,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserLocation {
+    pub nr_location: Option<NrLocation>,
+    pub eutra_location: Option<EutraLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NrLocation {
+    pub tai: Tai,
+    pub ncgi: Ncgi,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tai {
+    pub plmn_id: String,
+    pub tac: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ncgi {
+    pub plmn_id: String,
+    pub nr_cell_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EutraLocation {
+    pub tai: Tai,
+    pub ecgi: Ecgi,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ecgi {
+    pub plmn_id: String,
+    pub eutra_cell_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DnnSelectionMode {
+    Verified,
+    UeProvidedNotVerified,
+    NetworkProvided,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionCreatedData {
+    pub pdu_session_type: PduSessionType,
+    pub ssc_mode: String,
+    pub h_smf_uri: Option<String>,
+    pub smf_uri: Option<String>,
+    pub pdu_session_id: u8,
+    pub s_nssai: Snssai,
+    pub enable_pause_charging: Option<bool>,
+    pub ue_ipv4_address: Option<String>,
+    pub ue_ipv6_prefix: Option<String>,
+    pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    pub eps_pdn_cnx_info: Option<EpsPdnCnxInfo>,
+    pub supported_features: Option<String>,
+    pub session_ambr: Option<Ambr>,
+    pub cn_tunnel_info: Option<TunnelInfo>,
+    pub additional_cn_tunnel_info: Option<TunnelInfo>,
+    pub dnai_list: Option<Vec<String>>,
+    pub n2_sm_info: Option<N2SmInfo>,
+    pub n2_sm_info_type: Option<N2SmInfoType>,
+    pub sm_context_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpsPdnCnxInfo {
+    pub pgw_s8c_fteid: String,
+    pub pgw_node_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ambr {
+    pub uplink: String,
+    pub downlink: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum N2SmInfoType {
+    PduResSetupReq,
+    PduResSetupRsp,
+    PduResRelCmd,
+    PathSwitchReq,
+    PathSwitchSetupFail,
+    PathSwitchReqAck,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmContext {
+    #[serde(rename = "_id")]
+    pub id: String,
+    pub supi: String,
+    pub pdu_session_id: u8,
+    pub dnn: String,
+    pub s_nssai: Snssai,
+    pub pdu_session_type: PduSessionType,
+    pub state: SmContextState,
+    pub pdu_address: Option<PduAddress>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SmContext {
+    pub fn new(create_data: &PduSessionCreateData) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            supi: create_data.supi.clone(),
+            pdu_session_id: create_data.pdu_session_id,
+            dnn: create_data.dnn.clone(),
+            s_nssai: create_data.s_nssai.clone(),
+            pdu_session_type: PduSessionType::Ipv4,
+            state: SmContextState::Activated,
+            pdu_address: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+}
