@@ -1,10 +1,10 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use mongodb::Collection;
+use mongodb::{bson::doc, Collection};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContext};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduSessionType};
@@ -65,10 +65,33 @@ pub async fn create_pdu_session(
     Ok(Json(response))
 }
 
+pub async fn retrieve_pdu_session(
+    State(db): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+) -> Result<Json<SmContext>, AppError> {
+    let collection: Collection<SmContext> = db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    tracing::info!(
+        "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context.id
+    );
+
+    Ok(Json(sm_context))
+}
+
 #[derive(Debug)]
 pub enum AppError {
     DatabaseError(String),
     ValidationError(String),
+    NotFound(String),
 }
 
 impl IntoResponse for AppError {
@@ -76,6 +99,7 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
         };
 
         (status, message).into_response()

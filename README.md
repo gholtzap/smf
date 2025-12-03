@@ -36,13 +36,13 @@ The server will start on `http://localhost:8080` by default.
 
 ### PDU Session Management (TS 29.502)
 - PDU Session Create: SM Context creation endpoint (POST /nsmf-pdusession/v1/sm-contexts)
+- PDU Session Retrieve: SM Context retrieval endpoint (GET /nsmf-pdusession/v1/sm-contexts/{smContextRef})
 
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
 - PDU Session Update: SM Context modification endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/modify)
 - PDU Session Release: SM Context release endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/release)
-- PDU Session Retrieve: SM Context retrieval endpoint (GET /nsmf-pdusession/v1/sm-contexts/{smContextRef})
 - PDU Session Transfer: Inter-SMF session transfer endpoints
 
 ### Core Service Interfaces
