@@ -207,3 +207,90 @@ impl SmContext {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionUpdateData {
+    pub n1_sm_msg: Option<RefToBinaryData>,
+    pub n2_sm_info: Option<N2SmInfo>,
+    pub n2_sm_info_type: Option<N2SmInfoType>,
+    pub an_type: Option<AnType>,
+    pub rat_type: Option<RatType>,
+    pub ue_location: Option<UserLocation>,
+    pub ue_time_zone: Option<String>,
+    pub add_ue_location: Option<UserLocation>,
+    pub session_ambr: Option<Ambr>,
+    pub qos_flows_add_mod_request_list: Option<Vec<QosFlowItem>>,
+    pub qos_flows_rel_request_list: Option<Vec<QosFlowItem>>,
+    pub up_cnx_state: Option<UpCnxState>,
+    pub ho_preparation_indication: Option<bool>,
+    pub pcf_id: Option<String>,
+    pub pcf_group_id: Option<String>,
+    pub pcf_set_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionUpdatedData {
+    pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    pub n2_sm_info: Option<N2SmInfo>,
+    pub n2_sm_info_type: Option<N2SmInfoType>,
+    pub eps_bearer_info: Option<Vec<EpsBearerInfo>>,
+    pub supported_features: Option<String>,
+    pub session_ambr: Option<Ambr>,
+    pub cn_tunnel_info: Option<TunnelInfo>,
+    pub additional_cn_tunnel_info: Option<TunnelInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QosFlowItem {
+    pub qfi: u8,
+    pub qos_profile: Option<QosProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QosProfile {
+    #[serde(rename = "5qi")]
+    pub five_qi: u8,
+    pub priority_level: Option<u8>,
+    pub arp: Option<Arp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Arp {
+    pub priority_level: u8,
+    pub preempt_cap: PreemptionCapability,
+    pub preempt_vuln: PreemptionVulnerability,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PreemptionCapability {
+    MayPreempt,
+    NotPreempt,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PreemptionVulnerability {
+    Preemptable,
+    NotPreemptable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UpCnxState {
+    Activated,
+    Deactivated,
+    Activating,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpsBearerInfo {
+    pub ebi: u8,
+    pub pgw_s8u_fteid: Option<String>,
+}

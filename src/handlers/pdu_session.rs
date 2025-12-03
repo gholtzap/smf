@@ -6,7 +6,7 @@ use axum::{
 };
 use mongodb::{bson::doc, Collection};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContext};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduSessionType};
 
 pub async fn create_pdu_session(
@@ -85,6 +85,62 @@ pub async fn retrieve_pdu_session(
     );
 
     Ok(Json(sm_context))
+}
+
+pub async fn update_pdu_session(
+    State(db): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<PduSessionUpdateData>,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    let updated_ambr = payload.session_ambr.clone().or(Some(Ambr {
+        uplink: "100 Mbps".to_string(),
+        downlink: "100 Mbps".to_string(),
+    }));
+
+    let update_doc = doc! {
+        "$set": {
+            "updated_at": chrono::Utc::now()
+        }
+    };
+
+    collection
+        .update_one(doc! { "_id": &sm_context_ref }, update_doc)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let response = PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n2_sm_info: payload.n2_sm_info.or(Some(N2SmInfo {
+            content_id: "n2-sm-info".to_string(),
+            n2_info_content: N2InfoContent {
+                ngap_ie_type: NgapIeType::PduResModifyReq,
+                ngap_data: "base64_encoded_ngap_data".to_string(),
+            },
+        })),
+        n2_sm_info_type: payload.n2_sm_info_type.or(Some(crate::models::N2SmInfoType::PduResSetupReq)),
+        eps_bearer_info: None,
+        supported_features: None,
+        session_ambr: updated_ambr,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+    };
+
+    tracing::info!(
+        "Updated PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context_ref
+    );
+
+    Ok(Json(response))
 }
 
 #[derive(Debug)]
