@@ -8,6 +8,9 @@ pub struct Config {
     pub upf_port: u16,
     pub pfcp_bind_addr: String,
     pub pfcp_bind_port: u16,
+    pub nrf_uri: Option<String>,
+    pub nf_instance_id: String,
+    pub smf_host: String,
 }
 
 impl Config {
@@ -33,6 +36,14 @@ impl Config {
             .unwrap_or_else(|_| "8805".to_string())
             .parse()?;
 
+        let nrf_uri = env::var("NRF_URI").ok();
+
+        let nf_instance_id = env::var("NF_INSTANCE_ID")
+            .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+
+        let smf_host = env::var("SMF_HOST")
+            .unwrap_or_else(|_| "127.0.0.1".to_string());
+
         Ok(Self {
             port,
             mongodb_uri,
@@ -40,6 +51,9 @@ impl Config {
             upf_port,
             pfcp_bind_addr,
             pfcp_bind_port,
+            nrf_uri,
+            nf_instance_id,
+            smf_host,
         })
     }
 }

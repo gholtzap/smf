@@ -3,3 +3,4 @@ pub mod pfcp;
 pub mod pfcp_session;
 pub mod ipam;
 pub mod upf_health;
+pub mod nrf;

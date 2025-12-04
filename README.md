@@ -20,6 +20,9 @@ UPF_HOST=127.0.0.1
 UPF_PORT=8805
 PFCP_BIND_ADDR=0.0.0.0
 PFCP_BIND_PORT=8805
+NRF_URI=http://localhost:8000
+NF_INSTANCE_ID=
+SMF_HOST=127.0.0.1
 ```
 
 ## Building
@@ -72,6 +75,15 @@ The server will start on `http://localhost:8080` by default.
   - Automatic failure detection and status updates
   - Consecutive failure counting with configurable threshold
 
+### Network Function Integration - N4 Interface (NRF)
+- NRF client implementation (Nnrf service endpoints)
+  - NFProfile registration and deregistration
+  - NF service discovery (Nnrf_NFDiscovery)
+  - NF management (Nnrf_NFManagement)
+  - Subscription to NF status changes
+  - Heartbeat mechanism for keep-alive
+  - Support for querying NF instances by type and filters
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -87,6 +99,10 @@ The server will start on `http://localhost:8080` by default.
 
 ### Network Function Integration - Other NFs
 - NRF integration for service registration and discovery
+  - SMF service profile creation and registration
+  - Service discovery for other NFs (AMF, PCF, UDM, UPF)
+  - Heartbeat and keep-alive mechanism with NRF
+  - Service update and deregistration
 - AMF communication (Namf callbacks) for N1/N2 messaging
 - UDM/UDR integration for subscriber data retrieval
 - PCF integration for policy control
