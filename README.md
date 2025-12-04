@@ -49,6 +49,7 @@ The server will start on `http://localhost:8080` by default.
 
 ### Network Function Integration - N4 Interface (PFCP with UPF)
 - PFCP message data models (Session Establishment Request/Response, Modification, Deletion)
+- PFCP client implementation for UDP communication with UPF
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -64,7 +65,6 @@ The server will start on `http://localhost:8080` by default.
 - Network slice selection data
 
 ### Network Function Integration - N4 Interface (PFCP with UPF)
-- PFCP client implementation for UDP communication with UPF
 - PFCP session lifecycle management
 - UPF node discovery and health monitoring
 - Integration with PDU session create/update/release handlers

@@ -4,6 +4,10 @@ use std::env;
 pub struct Config {
     pub port: u16,
     pub mongodb_uri: String,
+    pub upf_host: String,
+    pub upf_port: u16,
+    pub pfcp_bind_addr: String,
+    pub pfcp_bind_port: u16,
 }
 
 impl Config {
@@ -15,6 +19,27 @@ impl Config {
         let mongodb_uri = env::var("MONGODB_URI")
             .unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
 
-        Ok(Self { port, mongodb_uri })
+        let upf_host = env::var("UPF_HOST")
+            .unwrap_or_else(|_| "127.0.0.1".to_string());
+
+        let upf_port = env::var("UPF_PORT")
+            .unwrap_or_else(|_| "8805".to_string())
+            .parse()?;
+
+        let pfcp_bind_addr = env::var("PFCP_BIND_ADDR")
+            .unwrap_or_else(|_| "0.0.0.0".to_string());
+
+        let pfcp_bind_port = env::var("PFCP_BIND_PORT")
+            .unwrap_or_else(|_| "8805".to_string())
+            .parse()?;
+
+        Ok(Self {
+            port,
+            mongodb_uri,
+            upf_host,
+            upf_port,
+            pfcp_bind_addr,
+            pfcp_bind_port,
+        })
     }
 }
