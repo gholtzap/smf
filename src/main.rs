@@ -9,6 +9,7 @@ use axum::{Router, routing::{get, post, put, delete}};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tokio::signal;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,6 +27,14 @@ async fn main() -> anyhow::Result<()> {
 
     let state = db::init(&config).await?;
 
+    if let Some(ref nrf_registration) = state.nrf_registration {
+        if let Err(e) = nrf_registration.register().await {
+            tracing::error!("Failed to register with NRF: {}", e);
+        } else {
+            nrf_registration.start_heartbeat().await;
+        }
+    }
+
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/nsmf-pdusession/v1/sm-contexts", post(handlers::pdu_session::create_pdu_session))
@@ -36,15 +45,59 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("Starting SMF server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+
+    let nrf_reg_for_shutdown = state.nrf_registration.clone();
+
+    tokio::select! {
+        result = axum::serve(listener, app) => {
+            if let Err(e) = result {
+                tracing::error!("Server error: {}", e);
+            }
+        }
+        _ = shutdown_signal() => {
+            tracing::info!("Shutdown signal received");
+        }
+    }
+
+    if let Some(nrf_registration) = nrf_reg_for_shutdown {
+        if let Err(e) = nrf_registration.deregister().await {
+            tracing::error!("Failed to deregister from NRF: {}", e);
+        }
+    }
+
+    tracing::info!("SMF shutdown complete");
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 async fn health_check() -> &'static str {

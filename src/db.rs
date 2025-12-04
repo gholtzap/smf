@@ -2,6 +2,8 @@ use mongodb::{Client, Database};
 use std::sync::Arc;
 use crate::services::notification::NotificationService;
 use crate::services::pfcp::PfcpClient;
+use crate::services::nrf::NrfClient;
+use crate::services::nrf_registration::NrfRegistrationService;
 use crate::config::Config;
 
 #[derive(Clone)]
@@ -9,6 +11,7 @@ pub struct AppState {
     pub db: Database,
     pub notification_service: Arc<NotificationService>,
     pub pfcp_client: Option<PfcpClient>,
+    pub nrf_registration: Option<Arc<NrfRegistrationService>>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -54,9 +57,27 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         }
     };
 
+    let nrf_registration = if let Some(nrf_uri) = &config.nrf_uri {
+        let nrf_client = Arc::new(NrfClient::new(
+            nrf_uri.clone(),
+            config.nf_instance_id.clone(),
+        ));
+
+        let registration_service = Arc::new(NrfRegistrationService::new(
+            nrf_client,
+            config.clone(),
+        ));
+
+        Some(registration_service)
+    } else {
+        tracing::warn!("NRF_URI not configured. SMF will not register with NRF.");
+        None
+    };
+
     Ok(AppState {
         db,
         notification_service,
         pfcp_client,
+        nrf_registration,
     })
 }

@@ -83,6 +83,13 @@ The server will start on `http://localhost:8080` by default.
   - Subscription to NF status changes
   - Heartbeat mechanism for keep-alive
   - Support for querying NF instances by type and filters
+- NRF integration for service registration
+  - SMF service profile creation and registration
+  - Automatic registration on startup
+  - Periodic heartbeat mechanism (60 second intervals)
+  - Graceful deregistration on shutdown
+  - NFService advertisement for nsmf-pdusession and nsmf-event-exposure
+  - SMF-specific info including S-NSSAI and DNN support
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -98,11 +105,9 @@ The server will start on `http://localhost:8080` by default.
 - Network slice selection data
 
 ### Network Function Integration - Other NFs
-- NRF integration for service registration and discovery
-  - SMF service profile creation and registration
+- NRF integration for service discovery
   - Service discovery for other NFs (AMF, PCF, UDM, UPF)
-  - Heartbeat and keep-alive mechanism with NRF
-  - Service update and deregistration
+  - Service update notifications
 - AMF communication (Namf callbacks) for N1/N2 messaging
 - UDM/UDR integration for subscriber data retrieval
 - PCF integration for policy control
