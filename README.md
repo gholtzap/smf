@@ -57,6 +57,13 @@ The server will start on `http://localhost:8080` by default.
 - PFCP session lifecycle management
 - Integration with PDU session create/update/release handlers
 
+### IP & Network Configuration
+- IP Address Management (IPAM) for PDU sessions
+  - Dynamic IP allocation from configurable pools
+  - Default pool: 10.60.0.0/16 with DNS servers (8.8.8.8, 8.8.4.4)
+  - IP allocation tracking in MongoDB
+  - Automatic IP release on session termination
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -88,7 +95,6 @@ The server will start on `http://localhost:8080` by default.
 - Emergency services PDU session establishment
 
 ### IP & Network Configuration
-- IP Address Management (IPAM) for PDU sessions
 - DNS configuration delivery to UEs
 - MTU configuration
 - IPv4 and IPv6 dual-stack support

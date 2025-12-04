@@ -7,8 +7,9 @@ use axum::{
 use mongodb::{bson::doc, Collection};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduSessionType};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType};
 use crate::services::pfcp_session::PfcpSessionManager;
+use crate::services::ipam::IpamService;
 
 pub async fn create_pdu_session(
     State(state): State<AppState>,
@@ -18,7 +19,21 @@ pub async fn create_pdu_session(
 
     let mut sm_context = SmContext::new(&payload);
 
-    let ue_ipv4_address = "10.0.0.1".to_string();
+    let ue_ipv4_address = IpamService::allocate_ip(
+        &state.db,
+        "default",
+        &sm_context.id,
+        &payload.supi,
+    )
+    .await
+    .map_err(|e| AppError::ValidationError(format!("IP allocation failed: {}", e)))?;
+
+    sm_context.pdu_address = Some(PduAddress {
+        pdu_session_type: PduSessionType::Ipv4,
+        ipv4_addr: Some(ue_ipv4_address.clone()),
+        ipv6_addr: None,
+    });
+
     let ue_ipv4 = ue_ipv4_address.parse().map_err(|e| {
         AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
     })?;
@@ -260,6 +275,13 @@ pub async fn release_pdu_session(
         Some(sm_context_ref.clone()),
         Some(crate::types::Cause::RegularDeactivation),
     ).await;
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
 
     collection
         .delete_one(doc! { "_id": &sm_context_ref })

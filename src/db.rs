@@ -17,6 +17,8 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     tracing::info!("Connected to MongoDB");
 
+    crate::services::ipam::IpamService::init_default_pool(&db).await?;
+
     let notification_service = Arc::new(NotificationService::new());
 
     let pfcp_bind_addr = format!("{}:{}", config.pfcp_bind_addr, config.pfcp_bind_port)
