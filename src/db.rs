@@ -34,6 +34,18 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     {
         Ok(client) => {
             tracing::info!("PFCP client initialized successfully");
+
+            let upf_address = format!("{}:{}", config.upf_host, config.upf_port);
+            let health_monitor = crate::services::upf_health::UpfHealthMonitor::new(
+                client.clone(),
+                db.clone(),
+                upf_address,
+            );
+
+            tokio::spawn(async move {
+                health_monitor.start().await;
+            });
+
             Some(client)
         }
         Err(e) => {

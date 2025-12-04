@@ -1,12 +1,14 @@
 pub mod event_exposure;
 pub mod pfcp;
 pub mod ipam;
+pub mod upf;
 
 use serde::{Deserialize, Serialize};
 
 pub use event_exposure::*;
 pub use pfcp::*;
 pub use ipam::*;
+pub use upf::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

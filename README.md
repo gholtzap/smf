@@ -64,6 +64,14 @@ The server will start on `http://localhost:8080` by default.
   - IP allocation tracking in MongoDB
   - Automatic IP release on session termination
 
+### UPF Health Monitoring
+- UPF node discovery and health monitoring
+  - Periodic heartbeat requests (30 second intervals)
+  - PFCP association setup and management
+  - UPF status tracking in MongoDB (Active/Inactive/Unknown)
+  - Automatic failure detection and status updates
+  - Consecutive failure counting with configurable threshold
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -76,9 +84,6 @@ The server will start on `http://localhost:8080` by default.
 - 3GPP data models and types
 - Session context structures
 - Network slice selection data
-
-### Network Function Integration - N4 Interface (PFCP with UPF)
-- UPF node discovery and health monitoring
 
 ### Network Function Integration - Other NFs
 - NRF integration for service registration and discovery
