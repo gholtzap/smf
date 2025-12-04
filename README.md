@@ -42,6 +42,8 @@ The server will start on `http://localhost:8080` by default.
 
 ### Event Exposure Service (TS 29.508)
 - Event subscription creation endpoint (POST /nsmf-event-exposure/v1/subscriptions)
+- Event subscription update endpoint (PUT /nsmf-event-exposure/v1/subscriptions/{subscriptionId})
+- Event subscription deletion endpoint (DELETE /nsmf-event-exposure/v1/subscriptions/{subscriptionId})
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -49,8 +51,6 @@ The server will start on `http://localhost:8080` by default.
 - PDU Session Transfer: Inter-SMF session transfer endpoints
 
 ### Event Exposure Service (TS 29.508)
-- Event subscription update endpoint (PUT /nsmf-event-exposure/v1/subscriptions/{subscriptionId})
-- Event subscription deletion endpoint (DELETE /nsmf-event-exposure/v1/subscriptions/{subscriptionId})
 - Event notification data models and types
 - PDU session event notifications
 

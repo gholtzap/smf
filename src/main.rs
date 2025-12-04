@@ -4,7 +4,7 @@ mod handlers;
 mod models;
 mod types;
 
-use axum::{Router, routing::{get, post}};
+use axum::{Router, routing::{get, post, put, delete}};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -32,6 +32,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/modify", post(handlers::pdu_session::update_pdu_session))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/release", post(handlers::pdu_session::release_pdu_session))
         .route("/nsmf-event-exposure/v1/subscriptions", post(handlers::event_exposure::create_event_subscription))
+        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
+        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .layer(TraceLayer::new_for_http())
         .with_state(db);
 
