@@ -11,10 +11,10 @@ use crate::db::AppState;
 use crate::types::{EventSubscription, EventSubscriptionCreatedData, StoredEventSubscription};
 
 pub async fn create_event_subscription(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<EventSubscription>,
 ) -> Result<Json<EventSubscriptionCreatedData>, AppError> {
-    let collection: Collection<StoredEventSubscription> = db.collection("event_subscriptions");
+    let collection: Collection<StoredEventSubscription> = state.db.collection("event_subscriptions");
 
     let subscription_id = Uuid::new_v4().to_string();
 
@@ -55,11 +55,11 @@ pub async fn create_event_subscription(
 }
 
 pub async fn update_event_subscription(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(subscription_id): Path<String>,
     Json(payload): Json<EventSubscription>,
 ) -> Result<Json<EventSubscriptionCreatedData>, AppError> {
-    let collection: Collection<StoredEventSubscription> = db.collection("event_subscriptions");
+    let collection: Collection<StoredEventSubscription> = state.db.collection("event_subscriptions");
 
     let existing = collection
         .find_one(doc! { "_id": &subscription_id })
@@ -107,10 +107,10 @@ pub async fn update_event_subscription(
 }
 
 pub async fn delete_event_subscription(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(subscription_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    let collection: Collection<StoredEventSubscription> = db.collection("event_subscriptions");
+    let collection: Collection<StoredEventSubscription> = state.db.collection("event_subscriptions");
 
     let result = collection
         .delete_one(doc! { "_id": &subscription_id })

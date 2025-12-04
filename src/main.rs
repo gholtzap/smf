@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod handlers;
 mod models;
+mod services;
 mod types;
 
 use axum::{Router, routing::{get, post, put, delete}};
@@ -23,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Config::from_env()?;
 
-    let db = db::init(&config.mongodb_uri).await?;
+    let state = db::init(&config.mongodb_uri).await?;
 
     let app = Router::new()
         .route("/health", get(health_check))
@@ -35,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .layer(TraceLayer::new_for_http())
-        .with_state(db);
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("Starting SMF server on {}", addr);

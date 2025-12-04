@@ -10,10 +10,10 @@ use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessio
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduSessionType};
 
 pub async fn create_pdu_session(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<PduSessionCreateData>,
 ) -> Result<Json<PduSessionCreatedData>, AppError> {
-    let collection: Collection<SmContext> = db.collection("sm_contexts");
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = SmContext::new(&payload);
 
@@ -32,7 +32,7 @@ pub async fn create_pdu_session(
         pdu_session_id: payload.pdu_session_id,
         s_nssai: payload.s_nssai.clone(),
         enable_pause_charging: Some(false),
-        ue_ipv4_address: Some(ue_ipv4_address),
+        ue_ipv4_address: Some(ue_ipv4_address.clone()),
         ue_ipv6_prefix: None,
         n1_sm_info_to_ue: None,
         eps_pdn_cnx_info: None,
@@ -62,14 +62,27 @@ pub async fn create_pdu_session(
         sm_context.id
     );
 
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::EventType::UeIpChange,
+        &payload.supi,
+        payload.pdu_session_id,
+        Some(payload.dnn.clone()),
+        Some(payload.s_nssai.clone()),
+        Some(ue_ipv4_address.clone()),
+        None,
+        Some(sm_context.id.clone()),
+        None,
+    ).await;
+
     Ok(Json(response))
 }
 
 pub async fn retrieve_pdu_session(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
 ) -> Result<Json<SmContext>, AppError> {
-    let collection: Collection<SmContext> = db.collection("sm_contexts");
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
         .find_one(doc! { "_id": &sm_context_ref })
@@ -88,11 +101,11 @@ pub async fn retrieve_pdu_session(
 }
 
 pub async fn update_pdu_session(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
     Json(payload): Json<PduSessionUpdateData>,
 ) -> Result<Json<PduSessionUpdatedData>, AppError> {
-    let collection: Collection<SmContext> = db.collection("sm_contexts");
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
         .find_one(doc! { "_id": &sm_context_ref })
@@ -144,17 +157,30 @@ pub async fn update_pdu_session(
 }
 
 pub async fn release_pdu_session(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
     Json(payload): Json<PduSessionReleaseData>,
 ) -> Result<Json<PduSessionReleasedData>, AppError> {
-    let collection: Collection<SmContext> = db.collection("sm_contexts");
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
         .find_one(doc! { "_id": &sm_context_ref })
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::EventType::PduSesRelease,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(sm_context_ref.clone()),
+        Some(crate::types::Cause::RegularDeactivation),
+    ).await;
 
     collection
         .delete_one(doc! { "_id": &sm_context_ref })
