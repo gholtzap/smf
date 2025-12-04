@@ -294,3 +294,36 @@ pub struct EpsBearerInfo {
     pub ebi: u8,
     pub pgw_s8u_fteid: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionReleaseData {
+    pub n2_sm_info: Option<N2SmInfo>,
+    pub n2_sm_info_type: Option<N2SmInfoType>,
+    pub cause: Option<ReleaseCause>,
+    pub ng_ap_cause: Option<NgApCause>,
+    pub five_g_mm_cause_value: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReleaseCause {
+    NwInitiated,
+    UeInitiated,
+    DdnFailure,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NgApCause {
+    pub group: u8,
+    pub value: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PduSessionReleasedData {
+    pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    pub n2_sm_info: Option<N2SmInfo>,
+    pub n2_sm_info_type: Option<N2SmInfoType>,
+}
