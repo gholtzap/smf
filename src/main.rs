@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Config::from_env()?;
 
-    let state = db::init(&config.mongodb_uri).await?;
+    let state = db::init(&config).await?;
 
     let app = Router::new()
         .route("/health", get(health_check))

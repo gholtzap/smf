@@ -16,6 +16,10 @@ Create a `.env` file with the following variables:
 ```
 PORT=8080
 MONGODB_URI=mongodb://localhost:27017
+UPF_HOST=127.0.0.1
+UPF_PORT=8805
+PFCP_BIND_ADDR=0.0.0.0
+PFCP_BIND_PORT=8805
 ```
 
 ## Building
@@ -50,6 +54,8 @@ The server will start on `http://localhost:8080` by default.
 ### Network Function Integration - N4 Interface (PFCP with UPF)
 - PFCP message data models (Session Establishment Request/Response, Modification, Deletion)
 - PFCP client implementation for UDP communication with UPF
+- PFCP session lifecycle management
+- Integration with PDU session create/update/release handlers
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -65,9 +71,7 @@ The server will start on `http://localhost:8080` by default.
 - Network slice selection data
 
 ### Network Function Integration - N4 Interface (PFCP with UPF)
-- PFCP session lifecycle management
 - UPF node discovery and health monitoring
-- Integration with PDU session create/update/release handlers
 
 ### Network Function Integration - Other NFs
 - NRF integration for service registration and discovery

@@ -1,0 +1,300 @@
+use crate::services::pfcp::{PfcpClient, PfcpClientInner};
+use crate::types::pfcp::*;
+use anyhow::{anyhow, Result};
+use std::net::Ipv4Addr;
+use tracing::{info, warn};
+
+pub struct PfcpSessionManager;
+
+impl PfcpSessionManager {
+    pub async fn establish_session(
+        pfcp_client: &PfcpClient,
+        seid: u64,
+        ue_ipv4: Ipv4Addr,
+        upf_ipv4: Ipv4Addr,
+    ) -> Result<PfcpSessionEstablishmentResponse> {
+        let node_id = NodeId {
+            node_id_type: NodeIdType::Ipv4Address,
+            node_id_value: pfcp_client.local_address()?.ip().to_string(),
+        };
+
+        let f_seid = FSeid {
+            seid,
+            ipv4_address: Some(pfcp_client.local_address()?.ip().to_string().parse()?),
+            ipv6_address: None,
+        };
+
+        let pdr_id = 1u16;
+        let far_id_ul = 1u32;
+        let far_id_dl = 2u32;
+
+        let pdr_ul = CreatePdr {
+            pdr_id,
+            precedence: 100,
+            pdi: Pdi {
+                source_interface: SourceInterface::Access,
+                local_f_teid: Some(FTeid {
+                    teid: seid as u32,
+                    ipv4_address: Some(upf_ipv4),
+                    ipv6_address: None,
+                    choose_id: None,
+                }),
+                network_instance: Some("internet".to_string()),
+                ue_ip_address: Some(UeIpAddress {
+                    ipv4_address: Some(ue_ipv4),
+                    ipv6_address: None,
+                    ipv6_prefix_length: None,
+                    is_destination: false,
+                    is_source: true,
+                }),
+                sdf_filter: None,
+                application_id: None,
+                ethernet_pdu_session_information: None,
+                framed_route: None,
+                framed_routing: None,
+                framed_ipv6_route: None,
+            },
+            outer_header_removal: Some(OuterHeaderRemoval {
+                outer_header_removal_description: OuterHeaderRemovalDescription::GtpUUdpIpv4,
+                gtpu_extension_header_deletion: None,
+            }),
+            far_id: far_id_ul,
+            qer_id: None,
+            urr_id: None,
+            activation_time: None,
+            deactivation_time: None,
+        };
+
+        let pdr_dl = CreatePdr {
+            pdr_id: pdr_id + 1,
+            precedence: 100,
+            pdi: Pdi {
+                source_interface: SourceInterface::Core,
+                local_f_teid: None,
+                network_instance: Some("internet".to_string()),
+                ue_ip_address: Some(UeIpAddress {
+                    ipv4_address: Some(ue_ipv4),
+                    ipv6_address: None,
+                    ipv6_prefix_length: None,
+                    is_destination: true,
+                    is_source: false,
+                }),
+                sdf_filter: None,
+                application_id: None,
+                ethernet_pdu_session_information: None,
+                framed_route: None,
+                framed_routing: None,
+                framed_ipv6_route: None,
+            },
+            outer_header_removal: None,
+            far_id: far_id_dl,
+            qer_id: None,
+            urr_id: None,
+            activation_time: None,
+            deactivation_time: None,
+        };
+
+        let far_ul = CreateFar {
+            far_id: far_id_ul,
+            apply_action: ApplyAction {
+                drop: false,
+                forw: true,
+                buff: false,
+                nocp: false,
+                dupl: false,
+            },
+            forwarding_parameters: Some(ForwardingParameters {
+                destination_interface: DestinationInterface::Core,
+                network_instance: Some("internet".to_string()),
+                redirect_information: None,
+                outer_header_creation: None,
+                transport_level_marking: None,
+                forwarding_policy: None,
+                header_enrichment: None,
+                traffic_endpoint_id: None,
+                proxying: None,
+            }),
+            duplicating_parameters: None,
+            bar_id: None,
+        };
+
+        let far_dl = CreateFar {
+            far_id: far_id_dl,
+            apply_action: ApplyAction {
+                drop: false,
+                forw: true,
+                buff: false,
+                nocp: false,
+                dupl: false,
+            },
+            forwarding_parameters: Some(ForwardingParameters {
+                destination_interface: DestinationInterface::Access,
+                network_instance: Some("internet".to_string()),
+                redirect_information: None,
+                outer_header_creation: Some(OuterHeaderCreation {
+                    outer_header_creation_description: OuterHeaderCreationDescription::GtpUUdpIpv4,
+                    teid: Some(seid as u32),
+                    ipv4_address: Some(upf_ipv4),
+                    ipv6_address: None,
+                    port_number: None,
+                    ctag: None,
+                    stag: None,
+                }),
+                transport_level_marking: None,
+                forwarding_policy: None,
+                header_enrichment: None,
+                traffic_endpoint_id: None,
+                proxying: None,
+            }),
+            duplicating_parameters: None,
+            bar_id: None,
+        };
+
+        let request = PfcpSessionEstablishmentRequest {
+            node_id,
+            f_seid,
+            create_pdr: vec![pdr_ul, pdr_dl],
+            create_far: vec![far_ul, far_dl],
+            create_qer: None,
+            create_urr: None,
+            pdn_type: Some(PdnType::Ipv4),
+            user_plane_inactivity_timer: Some(300),
+        };
+
+        pfcp_client.send_session_establishment_request(seid, &request).await?;
+
+        info!("Sent PFCP Session Establishment Request for SEID: {}", seid);
+
+        let response = pfcp_client
+            .receive_message_with_timeout(std::time::Duration::from_secs(5))
+            .await?;
+
+        let establishment_response = PfcpClientInner::decode_session_establishment_response(&response.payload)?;
+
+        match establishment_response.cause {
+            PfcpCause::RequestAccepted => {
+                info!("PFCP Session established successfully for SEID: {}", seid);
+                Ok(establishment_response)
+            }
+            _ => {
+                warn!("PFCP Session establishment failed: {:?}", establishment_response.cause);
+                Err(anyhow!("PFCP Session establishment failed: {:?}", establishment_response.cause))
+            }
+        }
+    }
+
+    pub async fn modify_session(
+        pfcp_client: &PfcpClient,
+        seid: u64,
+        ue_ipv4: Option<Ipv4Addr>,
+    ) -> Result<PfcpSessionModificationResponse> {
+        let mut request = PfcpSessionModificationRequest {
+            f_seid: None,
+            remove_pdr: None,
+            remove_far: None,
+            remove_qer: None,
+            remove_urr: None,
+            create_pdr: None,
+            create_far: None,
+            create_qer: None,
+            create_urr: None,
+            update_pdr: None,
+            update_far: None,
+            update_qer: None,
+            update_urr: None,
+            query_urr: None,
+            pfcp_session_retention_information: None,
+            user_plane_inactivity_timer: Some(300),
+        };
+
+        if let Some(new_ip) = ue_ipv4 {
+            let update_pdr = UpdatePdr {
+                pdr_id: 1,
+                precedence: None,
+                pdi: Some(Pdi {
+                    source_interface: SourceInterface::Access,
+                    local_f_teid: None,
+                    network_instance: Some("internet".to_string()),
+                    ue_ip_address: Some(UeIpAddress {
+                        ipv4_address: Some(new_ip),
+                        ipv6_address: None,
+                        ipv6_prefix_length: None,
+                        is_destination: false,
+                        is_source: true,
+                    }),
+                    sdf_filter: None,
+                    application_id: None,
+                    ethernet_pdu_session_information: None,
+                    framed_route: None,
+                    framed_routing: None,
+                    framed_ipv6_route: None,
+                }),
+                outer_header_removal: None,
+                far_id: None,
+                qer_id: None,
+                urr_id: None,
+                activation_time: None,
+                deactivation_time: None,
+            };
+            request.update_pdr = Some(vec![update_pdr]);
+        }
+
+        pfcp_client.send_session_modification_request(seid, &request).await?;
+
+        info!("Sent PFCP Session Modification Request for SEID: {}", seid);
+
+        let response = pfcp_client
+            .receive_message_with_timeout(std::time::Duration::from_secs(5))
+            .await?;
+
+        let modification_response = PfcpClientInner::decode_session_modification_response(&response.payload)?;
+
+        match modification_response.cause {
+            PfcpCause::RequestAccepted => {
+                info!("PFCP Session modified successfully for SEID: {}", seid);
+                Ok(modification_response)
+            }
+            _ => {
+                warn!("PFCP Session modification failed: {:?}", modification_response.cause);
+                Err(anyhow!("PFCP Session modification failed: {:?}", modification_response.cause))
+            }
+        }
+    }
+
+    pub async fn delete_session(
+        pfcp_client: &PfcpClient,
+        seid: u64,
+    ) -> Result<PfcpSessionDeletionResponse> {
+        let request = PfcpSessionDeletionRequest {
+            user_plane_inactivity_timer: None,
+        };
+
+        pfcp_client.send_session_deletion_request(seid, &request).await?;
+
+        info!("Sent PFCP Session Deletion Request for SEID: {}", seid);
+
+        let response = pfcp_client
+            .receive_message_with_timeout(std::time::Duration::from_secs(5))
+            .await?;
+
+        let deletion_response = PfcpClientInner::decode_session_deletion_response(&response.payload)?;
+
+        match deletion_response.cause {
+            PfcpCause::RequestAccepted => {
+                info!("PFCP Session deleted successfully for SEID: {}", seid);
+                Ok(deletion_response)
+            }
+            _ => {
+                warn!("PFCP Session deletion failed: {:?}", deletion_response.cause);
+                Err(anyhow!("PFCP Session deletion failed: {:?}", deletion_response.cause))
+            }
+        }
+    }
+
+    pub fn generate_seid(sm_context_id: &str, pdu_session_id: u8) -> u64 {
+        let hash = sm_context_id.bytes().fold(0u64, |acc, b| {
+            acc.wrapping_mul(31).wrapping_add(b as u64)
+        });
+        (hash & 0x0000_FFFF_FFFF_FF00) | (pdu_session_id as u64)
+    }
+}

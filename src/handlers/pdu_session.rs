@@ -8,6 +8,7 @@ use mongodb::{bson::doc, Collection};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduSessionType};
+use crate::services::pfcp_session::PfcpSessionManager;
 
 pub async fn create_pdu_session(
     State(state): State<AppState>,
@@ -15,14 +16,50 @@ pub async fn create_pdu_session(
 ) -> Result<Json<PduSessionCreatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
-    let sm_context = SmContext::new(&payload);
+    let mut sm_context = SmContext::new(&payload);
+
+    let ue_ipv4_address = "10.0.0.1".to_string();
+    let ue_ipv4 = ue_ipv4_address.parse().map_err(|e| {
+        AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
+    })?;
+
+    if let Some(ref pfcp_client) = state.pfcp_client {
+        let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
+
+        let upf_ipv4 = pfcp_client.upf_address().ip().to_string().parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
+        })?;
+
+        match PfcpSessionManager::establish_session(
+            pfcp_client,
+            seid,
+            ue_ipv4,
+            upf_ipv4,
+        ).await {
+            Ok(_) => {
+                sm_context.pfcp_session_id = Some(seid);
+                tracing::info!(
+                    "PFCP Session established for SUPI: {}, SEID: {}",
+                    payload.supi,
+                    seid
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to establish PFCP session for SUPI: {}: {}",
+                    payload.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("PFCP client not available, skipping PFCP session establishment");
+    }
 
     collection
         .insert_one(&sm_context)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    let ue_ipv4_address = "10.0.0.1".to_string();
 
     let response = PduSessionCreatedData {
         pdu_session_type: PduSessionType::Ipv4,
@@ -113,6 +150,27 @@ pub async fn update_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        match PfcpSessionManager::modify_session(pfcp_client, seid, None).await {
+            Ok(_) => {
+                tracing::info!(
+                    "PFCP Session modified for SUPI: {}, SEID: {}",
+                    sm_context.supi,
+                    seid
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to modify PFCP session for SUPI: {}: {}",
+                    sm_context.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("PFCP client or session ID not available, skipping PFCP session modification");
+    }
+
     let updated_ambr = payload.session_ambr.clone().or(Some(Ambr {
         uplink: "100 Mbps".to_string(),
         downlink: "100 Mbps".to_string(),
@@ -168,6 +226,27 @@ pub async fn release_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        match PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            Ok(_) => {
+                tracing::info!(
+                    "PFCP Session deleted for SUPI: {}, SEID: {}",
+                    sm_context.supi,
+                    seid
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to delete PFCP session for SUPI: {}: {}",
+                    sm_context.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("PFCP client or session ID not available, skipping PFCP session deletion");
+    }
 
     state.notification_service.notify_pdu_session_event(
         &state.db,

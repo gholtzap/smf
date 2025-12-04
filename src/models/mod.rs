@@ -187,6 +187,7 @@ pub struct SmContext {
     pub pdu_session_type: PduSessionType,
     pub state: SmContextState,
     pub pdu_address: Option<PduAddress>,
+    pub pfcp_session_id: Option<u64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -202,6 +203,7 @@ impl SmContext {
             pdu_session_type: PduSessionType::Ipv4,
             state: SmContextState::Activated,
             pdu_address: None,
+            pfcp_session_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
