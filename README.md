@@ -47,6 +47,9 @@ The server will start on `http://localhost:8080` by default.
 - Event notification data models and types (EventNotification, EventReport, PduSessionEventInfo, Cause)
 - PDU session event notifications (UE IP change and PDU session release events)
 
+### Network Function Integration - N4 Interface (PFCP with UPF)
+- PFCP message data models (Session Establishment Request/Response, Modification, Deletion)
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -60,8 +63,13 @@ The server will start on `http://localhost:8080` by default.
 - Session context structures
 - Network slice selection data
 
-### Network Function Integration
-- N4 interface (PFCP) with UPF for user plane control
+### Network Function Integration - N4 Interface (PFCP with UPF)
+- PFCP client implementation for UDP communication with UPF
+- PFCP session lifecycle management
+- UPF node discovery and health monitoring
+- Integration with PDU session create/update/release handlers
+
+### Network Function Integration - Other NFs
 - NRF integration for service registration and discovery
 - AMF communication (Namf callbacks) for N1/N2 messaging
 - UDM/UDR integration for subscriber data retrieval
