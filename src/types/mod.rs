@@ -1,4 +1,8 @@
+pub mod event_exposure;
+
 use serde::{Deserialize, Serialize};
+
+pub use event_exposure::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
