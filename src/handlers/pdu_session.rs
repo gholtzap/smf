@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HoState};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -1114,5 +1114,65 @@ pub async fn handle_handover_notify(
     Ok(Json(serde_json::json!({
         "status": "success",
         "handoverState": format!("{:?}", payload.ho_state).to_uppercase()
+    })))
+}
+
+pub async fn handle_handover_cancel(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<HandoverCancelData>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    HandoverService::validate_ho_state_for_cancel(&sm_context.handover_state)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "Handover cancel received for SUPI: {}, PDU Session ID: {}, SM Context: {}, Cause: {:?}",
+        sm_context.supi,
+        payload.pdu_session_id,
+        sm_context_ref,
+        payload.cause
+    );
+
+    if payload.pdu_session_id != sm_context.pdu_session_id {
+        return Err(AppError::ValidationError(format!(
+            "PDU Session ID mismatch: expected {}, got {}",
+            sm_context.pdu_session_id,
+            payload.pdu_session_id
+        )));
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
+                    "handover_state": mongodb::bson::to_bson(&HoState::Cancelled).unwrap(),
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    tracing::info!(
+        "Handover cancelled for SUPI: {}, PDU Session ID: {}, reverting to Active state, Cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.cause
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "handoverState": "CANCELLED",
+        "cause": format!("{:?}", payload.cause).to_uppercase()
     })))
 }

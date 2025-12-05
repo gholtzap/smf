@@ -283,6 +283,11 @@ The server will start on `http://localhost:8080` by default.
   - PFCP session modification during handover completion
   - SM context state restoration on handover completion
   - Handover notify endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/handover-notify)
+  - Handover cancellation and failure handling
+  - Handover state validation for cancellation (Preparing/Prepared states)
+  - Handover cancel cause support (HO_TARGET_NOT_ALLOWED, HO_TARGET_BECOMING_RICH, HO_TARGET_NOT_REACHABLE, HO_FAILURE_IN_TARGET_SYSTEM, HO_CANCELLED)
+  - SM context state restoration to Active on cancellation
+  - Handover cancel endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/handover-cancel)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -313,7 +318,6 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - N2-based handover completion:
-    - Handover cancellation and failure handling
     - N2 SM information extraction and processing during handover
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs

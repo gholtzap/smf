@@ -57,4 +57,19 @@ impl HandoverService {
             gtp_teid: gtp_teid.to_string(),
         }
     }
+
+    pub fn validate_ho_state_for_cancel(ho_state: &Option<HoState>) -> HandoverResult<()> {
+        match ho_state {
+            Some(HoState::Preparing) | Some(HoState::Prepared) => Ok(()),
+            Some(HoState::Completed) => Err(
+                "Cannot cancel handover: handover already completed".to_string()
+            ),
+            Some(HoState::Cancelled) => Err(
+                "Handover already cancelled".to_string()
+            ),
+            Some(HoState::None) | None => Err(
+                "No handover in progress to cancel".to_string()
+            ),
+        }
+    }
 }
