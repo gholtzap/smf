@@ -10,6 +10,7 @@ use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::services::slice_selection::SliceSelector;
 use crate::services::dnn_selector::DnnSelector;
 use crate::services::pcf::PcfClient;
+use crate::services::udm::UdmClient;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -19,6 +20,7 @@ pub struct AppState {
     pub notification_service: Arc<NotificationService>,
     pub pfcp_client: Option<PfcpClient>,
     pub pcf_client: Option<Arc<PcfClient>>,
+    pub udm_client: Option<Arc<UdmClient>>,
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
@@ -101,6 +103,14 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         None
     };
 
+    let udm_client = if let Some(udm_uri) = &config.udm_uri {
+        tracing::info!("UDM client initialized with URI: {}", udm_uri);
+        Some(Arc::new(UdmClient::new()))
+    } else {
+        tracing::warn!("UDM_URI not configured. Subscriber data validation will be disabled.");
+        None
+    };
+
     let slice_selector = Arc::new(SliceSelector::new());
     tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
 
@@ -112,6 +122,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         notification_service,
         pfcp_client,
         pcf_client,
+        udm_client,
         nrf_registration,
         nrf_discovery,
         slice_selector,

@@ -22,6 +22,7 @@ PFCP_BIND_ADDR=0.0.0.0
 PFCP_BIND_PORT=8805
 NRF_URI=http://localhost:8000
 PCF_URI=http://localhost:8001
+UDM_URI=http://localhost:8002
 NF_INSTANCE_ID=
 SMF_HOST=127.0.0.1
 ```
@@ -132,6 +133,15 @@ The server will start on `http://localhost:8080` by default.
   - SDM subscription deletion endpoint (DELETE /nudm-sdm/v2/{supi}/sdm-subscriptions/{subscriptionId})
   - Session management subscription data types (DNN configurations, QoS profiles, AMBR, SSC modes)
   - Support for query parameters (S-NSSAI, DNN, PLMN ID)
+- UDM integration for subscriber data retrieval
+  - UDM discovery via NRF service discovery
+  - Integration with PDU session creation flow for subscriber validation
+  - Subscriber authorization validation for DNN access
+  - Subscriber-specific QoS profile (5QI) application from UDM data
+  - Subscriber-specific session AMBR (uplink/downlink bit rates) from UDM data
+  - DNN configuration validation against subscriber's allowed DNNs
+  - SSC mode validation from subscriber data
+  - Automatic fallback to DNN and slice defaults when UDM unavailable
 - PCF client implementation (HTTP client for Npcf service endpoints)
   - PCF client data models for Npcf_SMPolicyControl (SM Policy Control)
   - SM policy context data models (SmPolicyContextData, SmPolicyUpdateContextData)
@@ -232,14 +242,11 @@ The server will start on `http://localhost:8080` by default.
   - N2 message container handling (NGAP messages)
   - N1N2MessageTransfer endpoint implementation
   - AMF callback endpoints for N1/N2 message delivery
-- UDM/UDR integration for subscriber data retrieval
-  - UDM discovery via NRF
-  - UE context management (Nudm_UECM) endpoints
+- UDR client integration for direct data access
   - UDR client data models (Nudr_DataRepository)
   - UDR client HTTP implementation
   - UDR discovery via NRF
   - Direct UDR data access endpoints
-  - Integration with PDU session creation flow for subscriber validation
 - CHF integration for charging
 
 ### Session Management

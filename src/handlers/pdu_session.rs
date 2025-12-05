@@ -45,6 +45,79 @@ pub async fn create_pdu_session(
         dnn_config.description
     );
 
+    let (subscriber_5qi, subscriber_ambr) = if let Some(ref udm_client) = state.udm_client {
+        let udm_uri = std::env::var("UDM_URI").unwrap_or_default();
+
+        match udm_client.get_sm_data(
+            &udm_uri,
+            &payload.supi,
+            Some(&payload.s_nssai),
+            Some(&payload.dnn),
+            None,
+        ).await {
+            Ok(sm_data) => {
+                tracing::info!(
+                    "Retrieved SM subscription data from UDM for SUPI: {}",
+                    payload.supi
+                );
+
+                if let Some(ref dnn_configs) = sm_data.dnn_configurations {
+                    if let Some(dnn_config) = dnn_configs.get(&payload.dnn) {
+                        tracing::info!(
+                            "Subscriber authorized for DNN: {} with SSC mode: {:?}",
+                            payload.dnn,
+                            dnn_config.ssc_modes.default_ssc_mode
+                        );
+
+                        let sub_5qi = dnn_config.qos_profile_5g.as_ref().map(|qos| qos.qos_identifier_5);
+                        let sub_ambr = dnn_config.session_ambr.clone();
+
+                        if let Some(qos_5qi) = sub_5qi {
+                            tracing::info!(
+                                "Using subscriber 5QI: {} from UDM for SUPI: {}",
+                                qos_5qi,
+                                payload.supi
+                            );
+                        }
+
+                        if sub_ambr.is_some() {
+                            tracing::info!(
+                                "Using subscriber session AMBR from UDM for SUPI: {}",
+                                payload.supi
+                            );
+                        }
+
+                        (sub_5qi, sub_ambr)
+                    } else {
+                        tracing::warn!(
+                            "DNN {} not found in subscriber's UDM data for SUPI: {}, using defaults",
+                            payload.dnn,
+                            payload.supi
+                        );
+                        (None, None)
+                    }
+                } else {
+                    tracing::warn!(
+                        "No DNN configurations found in UDM data for SUPI: {}, using defaults",
+                        payload.supi
+                    );
+                    (None, None)
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to retrieve SM data from UDM for SUPI: {}: {}, continuing with defaults",
+                    payload.supi,
+                    e
+                );
+                (None, None)
+            }
+        }
+    } else {
+        tracing::debug!("UDM client not available, skipping subscriber validation");
+        (None, None)
+    };
+
     let existing = collection
         .find_one(doc! { "supi": &payload.supi, "pdu_session_id": payload.pdu_session_id as i32 })
         .await
@@ -59,7 +132,8 @@ pub async fn create_pdu_session(
 
     let mut sm_context = SmContext::new(&payload);
 
-    let default_5qi = dnn_config.default_5qi
+    let default_5qi = subscriber_5qi
+        .or(dnn_config.default_5qi)
         .or(slice_config.default_5qi)
         .unwrap_or(9);
 
@@ -214,9 +288,16 @@ pub async fn create_pdu_session(
         n1_sm_info_to_ue: None,
         eps_pdn_cnx_info: None,
         supported_features: None,
-        session_ambr: Some(Ambr {
-            uplink: dnn_config.default_session_ambr_uplink.clone(),
-            downlink: dnn_config.default_session_ambr_downlink.clone(),
+        session_ambr: Some(if let Some(ref sub_ambr) = subscriber_ambr {
+            Ambr {
+                uplink: sub_ambr.uplink.clone(),
+                downlink: sub_ambr.downlink.clone(),
+            }
+        } else {
+            Ambr {
+                uplink: dnn_config.default_session_ambr_uplink.clone(),
+                downlink: dnn_config.default_session_ambr_downlink.clone(),
+            }
         }),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
