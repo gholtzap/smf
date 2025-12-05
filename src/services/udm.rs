@@ -1,0 +1,314 @@
+use crate::types::{
+    SessionManagementSubscriptionData, SdmSubscription,
+    Snssai, PlmnId,
+};
+use crate::types::nrf::ProblemDetails;
+use anyhow::{Result, Context};
+use reqwest::{Client, StatusCode};
+
+pub struct UdmClient {
+    client: Client,
+}
+
+impl UdmClient {
+    pub fn new() -> Self {
+        Self {
+            client: Client::new(),
+        }
+    }
+
+    pub async fn get_sm_data(
+        &self,
+        udm_uri: &str,
+        supi: &str,
+        snssai: Option<&Snssai>,
+        dnn: Option<&str>,
+        plmn_id: Option<&PlmnId>,
+    ) -> Result<SessionManagementSubscriptionData> {
+        let mut url = format!(
+            "{}/nudm-sdm/v2/{}/sm-data",
+            udm_uri, supi
+        );
+
+        let mut query_params = Vec::new();
+
+        if let Some(s) = snssai {
+            let snssai_str = if let Some(sd) = &s.sd {
+                format!("{}-{}", s.sst, sd)
+            } else {
+                s.sst.to_string()
+            };
+            query_params.push(format!("single-nssai={}", urlencoding::encode(&snssai_str)));
+        }
+
+        if let Some(d) = dnn {
+            query_params.push(format!("dnn={}", urlencoding::encode(d)));
+        }
+
+        if let Some(p) = plmn_id {
+            let plmn_str = format!("{}-{}", p.mcc, p.mnc);
+            query_params.push(format!("plmn-id={}", urlencoding::encode(&plmn_str)));
+        }
+
+        if !query_params.is_empty() {
+            url.push('?');
+            url.push_str(&query_params.join("&"));
+        }
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to send request to UDM for SM data")?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let sm_data: SessionManagementSubscriptionData = response
+                    .json()
+                    .await
+                    .context("Failed to parse SM subscription data from UDM")?;
+
+                tracing::info!(
+                    "Successfully retrieved SM subscription data for SUPI {} from UDM",
+                    supi
+                );
+
+                Ok(sm_data)
+            }
+            StatusCode::NOT_FOUND => {
+                Err(anyhow::anyhow!(
+                    "SM subscription data not found for SUPI {}",
+                    supi
+                ))
+            }
+            StatusCode::BAD_REQUEST => {
+                let problem: ProblemDetails = response
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| ProblemDetails {
+                        problem_type: None,
+                        title: Some("Bad Request".to_string()),
+                        status: Some(400),
+                        detail: None,
+                        instance: None,
+                        cause: None,
+                        invalid_params: None,
+                        supported_features: None,
+                    });
+
+                Err(anyhow::anyhow!(
+                    "Bad request to UDM: {} - {}",
+                    problem.title.unwrap_or_default(),
+                    problem.detail.unwrap_or_default()
+                ))
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {
+                Err(anyhow::anyhow!("UDM temporarily unavailable"))
+            }
+            status => {
+                let error_body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "Failed to retrieve SM data from UDM with status {}: {}",
+                    status,
+                    error_body
+                ))
+            }
+        }
+    }
+
+    pub async fn subscribe_sm_data(
+        &self,
+        udm_uri: &str,
+        supi: &str,
+        subscription: SdmSubscription,
+    ) -> Result<SdmSubscription> {
+        let url = format!(
+            "{}/nudm-sdm/v2/{}/sdm-subscriptions",
+            udm_uri, supi
+        );
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&subscription)
+            .send()
+            .await
+            .context("Failed to send SDM subscription request to UDM")?;
+
+        match response.status() {
+            StatusCode::CREATED => {
+                let created_subscription: SdmSubscription = response
+                    .json()
+                    .await
+                    .context("Failed to parse SDM subscription response from UDM")?;
+
+                tracing::info!(
+                    "Successfully created SDM subscription for SUPI {} at UDM, subscription ID: {}",
+                    supi,
+                    created_subscription.subscription_id.as_ref().unwrap_or(&"N/A".to_string())
+                );
+
+                Ok(created_subscription)
+            }
+            StatusCode::BAD_REQUEST => {
+                let problem: ProblemDetails = response
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| ProblemDetails {
+                        problem_type: None,
+                        title: Some("Bad Request".to_string()),
+                        status: Some(400),
+                        detail: None,
+                        instance: None,
+                        cause: None,
+                        invalid_params: None,
+                        supported_features: None,
+                    });
+
+                Err(anyhow::anyhow!(
+                    "Bad request to UDM for SDM subscription: {} - {}",
+                    problem.title.unwrap_or_default(),
+                    problem.detail.unwrap_or_default()
+                ))
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {
+                Err(anyhow::anyhow!("UDM temporarily unavailable"))
+            }
+            status => {
+                let error_body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "Failed to create SDM subscription at UDM with status {}: {}",
+                    status,
+                    error_body
+                ))
+            }
+        }
+    }
+
+    pub async fn unsubscribe_sm_data(
+        &self,
+        udm_uri: &str,
+        supi: &str,
+        subscription_id: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/nudm-sdm/v2/{}/sdm-subscriptions/{}",
+            udm_uri, supi, subscription_id
+        );
+
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .context("Failed to send SDM unsubscribe request to UDM")?;
+
+        match response.status() {
+            StatusCode::NO_CONTENT => {
+                tracing::info!(
+                    "Successfully deleted SDM subscription {} for SUPI {} from UDM",
+                    subscription_id,
+                    supi
+                );
+
+                Ok(())
+            }
+            StatusCode::NOT_FOUND => {
+                Err(anyhow::anyhow!(
+                    "SDM subscription {} not found for SUPI {}",
+                    subscription_id,
+                    supi
+                ))
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {
+                Err(anyhow::anyhow!("UDM temporarily unavailable"))
+            }
+            status => {
+                let error_body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "Failed to delete SDM subscription from UDM with status {}: {}",
+                    status,
+                    error_body
+                ))
+            }
+        }
+    }
+
+    pub async fn modify_sm_subscription(
+        &self,
+        udm_uri: &str,
+        supi: &str,
+        subscription_id: &str,
+        subscription: SdmSubscription,
+    ) -> Result<SdmSubscription> {
+        let url = format!(
+            "{}/nudm-sdm/v2/{}/sdm-subscriptions/{}",
+            udm_uri, supi, subscription_id
+        );
+
+        let response = self
+            .client
+            .put(&url)
+            .json(&subscription)
+            .send()
+            .await
+            .context("Failed to send SDM subscription modification request to UDM")?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let modified_subscription: SdmSubscription = response
+                    .json()
+                    .await
+                    .context("Failed to parse modified SDM subscription response from UDM")?;
+
+                tracing::info!(
+                    "Successfully modified SDM subscription {} for SUPI {} at UDM",
+                    subscription_id,
+                    supi
+                );
+
+                Ok(modified_subscription)
+            }
+            StatusCode::NOT_FOUND => {
+                Err(anyhow::anyhow!(
+                    "SDM subscription {} not found for SUPI {}",
+                    subscription_id,
+                    supi
+                ))
+            }
+            StatusCode::BAD_REQUEST => {
+                let problem: ProblemDetails = response
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| ProblemDetails {
+                        problem_type: None,
+                        title: Some("Bad Request".to_string()),
+                        status: Some(400),
+                        detail: None,
+                        instance: None,
+                        cause: None,
+                        invalid_params: None,
+                        supported_features: None,
+                    });
+
+                Err(anyhow::anyhow!(
+                    "Bad request to UDM for SDM subscription modification: {} - {}",
+                    problem.title.unwrap_or_default(),
+                    problem.detail.unwrap_or_default()
+                ))
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {
+                Err(anyhow::anyhow!("UDM temporarily unavailable"))
+            }
+            status => {
+                let error_body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "Failed to modify SDM subscription at UDM with status {}: {}",
+                    status,
+                    error_body
+                ))
+            }
+        }
+    }
+}

@@ -121,6 +121,16 @@ The server will start on `http://localhost:8080` by default.
   - N1 message container types (SM, LPP, SMS, UPDP classes)
   - N2 information container types (SM, NRPPA, PWS classes)
   - UE context transfer types with access type and mobility registration support
+- UDM client implementation (HTTP client for Nudm service endpoints)
+  - UDM client data models for Nudm_SDM (Session Management Subscription Data)
+  - UDM client data models for Nudm_UECM (UE Context Management)
+  - UDM client HTTP implementation with error handling
+  - SM subscription data retrieval endpoint (GET /nudm-sdm/v2/{supi}/sm-data)
+  - SDM subscription creation endpoint (POST /nudm-sdm/v2/{supi}/sdm-subscriptions)
+  - SDM subscription modification endpoint (PUT /nudm-sdm/v2/{supi}/sdm-subscriptions/{subscriptionId})
+  - SDM subscription deletion endpoint (DELETE /nudm-sdm/v2/{supi}/sdm-subscriptions/{subscriptionId})
+  - Session management subscription data types (DNN configurations, QoS profiles, AMBR, SSC modes)
+  - Support for query parameters (S-NSSAI, DNN, PLMN ID)
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -209,6 +219,13 @@ The server will start on `http://localhost:8080` by default.
   - N1N2MessageTransfer endpoint implementation
   - AMF callback endpoints for N1/N2 message delivery
 - UDM/UDR integration for subscriber data retrieval
+  - UDM discovery via NRF
+  - UE context management (Nudm_UECM) endpoints
+  - UDR client data models (Nudr_DataRepository)
+  - UDR client HTTP implementation
+  - UDR discovery via NRF
+  - Direct UDR data access endpoints
+  - Integration with PDU session creation flow for subscriber validation
 - PCF integration for policy control
 - CHF integration for charging
 
