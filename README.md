@@ -271,6 +271,11 @@ The server will start on `http://localhost:8080` by default.
   - Handover state tracking (None, Preparing, Prepared, Completed, Cancelled)
   - Direct forwarding path availability indication
   - Handover required response endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/handover-required)
+  - Handover request acknowledgment processing
+  - Handover state validation for request acknowledgment
+  - PDU session ID validation in acknowledgment
+  - Handover state update from Preparing to Prepared
+  - Handover request acknowledgment endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/handover-request-ack)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -300,13 +305,12 @@ The server will start on `http://localhost:8080` by default.
 
 ### Session Management
 - Session continuity and mobility (handover procedures):
-  - N2-based handover:
-    - UE context transfer request/response between SMFs
-    - Handover request acknowledgment processing
+  - N2-based handover completion:
     - Handover notify handling for completion confirmation
     - Handover cancellation and failure handling
     - N2 SM information extraction and processing during handover
     - Handover resource allocation coordination with target gNB
+    - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
   - UPF relocation and selection during handover
   - QoS flow mapping and continuity during handover

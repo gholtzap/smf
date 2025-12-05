@@ -1,5 +1,5 @@
 use crate::models::{TunnelInfo, N2SmInfoType};
-use crate::types::SmContextState;
+use crate::types::{HoState, SmContextState};
 
 type HandoverResult<T> = Result<T, String>;
 
@@ -25,6 +25,17 @@ impl HandoverService {
                 "Invalid state for handover: {:?}. PDU session must be in Active state",
                 current_state
             )),
+        }
+    }
+
+    pub fn validate_ho_state_for_request_ack(ho_state: &Option<HoState>) -> HandoverResult<()> {
+        match ho_state {
+            Some(HoState::Preparing) => Ok(()),
+            Some(state) => Err(format!(
+                "Invalid handover state for request acknowledgment: {:?}. Expected Preparing state",
+                state
+            )),
+            None => Err("No handover in progress".to_string()),
         }
     }
 
