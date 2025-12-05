@@ -15,3 +15,4 @@ pub mod amf_selector;
 pub mod amf;
 pub mod udm;
 pub mod pcf;
+pub mod ssc_selector;

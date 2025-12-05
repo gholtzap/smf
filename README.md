@@ -156,6 +156,17 @@ The server will start on `http://localhost:8080` by default.
   - Support for PCC rules, QoS data, charging data, and traffic control data
   - Comprehensive data models for session rules, flow information, and policy triggers
 
+### SSC Mode Management
+- SSC mode selection and validation framework
+  - SSC mode type definitions (Mode 1, Mode 2, Mode 3)
+  - SSC mode selector service with configuration support
+  - SSC mode validation based on UE request, subscriber data, and network policy
+  - Default SSC mode selection with fallback logic
+  - SSC mode persistence in SM context
+  - SSC mode delivery in PDU session creation response
+  - Integration with UDM subscriber data for allowed SSC modes
+  - Conversion support between UDM and SMF SSC mode representations
+
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
   - ActivePending -> Active transition during PDU session creation after PFCP session establishment
@@ -251,7 +262,10 @@ The server will start on `http://localhost:8080` by default.
 
 ### Session Management
 - Session continuity and mobility (handover procedures)
-- Service and Session Continuity (SSC) modes (1/2/3)
+- Service and Session Continuity (SSC) modes:
+  - SSC mode 1: Network-anchored session with IP address preservation
+  - SSC mode 2: Network-initiated session release and re-establishment
+  - SSC mode 3: UE-initiated make-before-break session establishment
 - Emergency services PDU session establishment
 
 ### IP & Network Configuration

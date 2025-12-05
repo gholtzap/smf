@@ -9,6 +9,7 @@ use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::services::slice_selection::SliceSelector;
 use crate::services::dnn_selector::DnnSelector;
+use crate::services::ssc_selector::SscModeSelector;
 use crate::services::pcf::PcfClient;
 use crate::services::udm::UdmClient;
 use crate::config::Config;
@@ -25,6 +26,7 @@ pub struct AppState {
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
     pub dnn_selector: Arc<DnnSelector>,
+    pub ssc_selector: Arc<SscModeSelector>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -117,6 +119,9 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let dnn_selector = Arc::new(DnnSelector::new());
     tracing::info!("DNN selector initialized with {} configured DNNs", dnn_selector.list_allowed_dnns().len());
 
+    let ssc_selector = Arc::new(SscModeSelector::new());
+    tracing::info!("SSC mode selector initialized with {} allowed modes", ssc_selector.get_allowed_modes().len());
+
     Ok(AppState {
         db,
         notification_service,
@@ -127,6 +132,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         nrf_discovery,
         slice_selector,
         dnn_selector,
+        ssc_selector,
     })
 }
 

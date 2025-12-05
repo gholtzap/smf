@@ -11,6 +11,7 @@ pub mod dnn;
 pub mod amf;
 pub mod udm;
 pub mod pcf;
+pub mod ssc;
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +26,7 @@ pub use qos_rule::*;
 pub use slice::*;
 pub use dnn::*;
 pub use amf::*;
-pub use udm::*;
+pub use ssc::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

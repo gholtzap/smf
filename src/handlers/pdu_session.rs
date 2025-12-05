@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -45,7 +45,7 @@ pub async fn create_pdu_session(
         dnn_config.description
     );
 
-    let (subscriber_5qi, subscriber_ambr) = if let Some(ref udm_client) = state.udm_client {
+    let (subscriber_5qi, subscriber_ambr, subscriber_ssc_modes) = if let Some(ref udm_client) = state.udm_client {
         let udm_uri = std::env::var("UDM_URI").unwrap_or_default();
 
         match udm_client.get_sm_data(
@@ -62,7 +62,7 @@ pub async fn create_pdu_session(
                 );
 
                 if let Some(ref dnn_configs) = sm_data.dnn_configurations {
-                    if let Some(dnn_config) = dnn_configs.get(&payload.dnn) {
+                    if let Some(dnn_config) = dnn_configs.get(&payload.dnn as &str) {
                         tracing::info!(
                             "Subscriber authorized for DNN: {} with SSC mode: {:?}",
                             payload.dnn,
@@ -71,6 +71,9 @@ pub async fn create_pdu_session(
 
                         let sub_5qi = dnn_config.qos_profile_5g.as_ref().map(|qos| qos.qos_identifier_5);
                         let sub_ambr = dnn_config.session_ambr.clone();
+                        let sub_ssc_modes = dnn_config.ssc_modes.allowed_ssc_modes.as_ref().map(|modes| {
+                            modes.iter().map(|m| SscMode::from(m.clone())).collect::<Vec<SscMode>>()
+                        });
 
                         if let Some(qos_5qi) = sub_5qi {
                             tracing::info!(
@@ -87,21 +90,21 @@ pub async fn create_pdu_session(
                             );
                         }
 
-                        (sub_5qi, sub_ambr)
+                        (sub_5qi, sub_ambr, sub_ssc_modes)
                     } else {
                         tracing::warn!(
                             "DNN {} not found in subscriber's UDM data for SUPI: {}, using defaults",
                             payload.dnn,
                             payload.supi
                         );
-                        (None, None)
+                        (None, None, None)
                     }
                 } else {
                     tracing::warn!(
                         "No DNN configurations found in UDM data for SUPI: {}, using defaults",
                         payload.supi
                     );
-                    (None, None)
+                    (None, None, None)
                 }
             }
             Err(e) => {
@@ -110,12 +113,12 @@ pub async fn create_pdu_session(
                     payload.supi,
                     e
                 );
-                (None, None)
+                (None, None, None)
             }
         }
     } else {
         tracing::debug!("UDM client not available, skipping subscriber validation");
-        (None, None)
+        (None, None, None)
     };
 
     let existing = collection
@@ -131,6 +134,19 @@ pub async fn create_pdu_session(
     }
 
     let mut sm_context = SmContext::new(&payload);
+
+    let selected_ssc_mode = state.ssc_selector.select_ssc_mode(
+        payload.ssc_mode.as_deref(),
+        subscriber_ssc_modes.as_deref(),
+        None,
+    ).map_err(AppError::ValidationError)?;
+
+    sm_context.ssc_mode = selected_ssc_mode;
+    tracing::info!(
+        "Selected SSC mode: {} for SUPI: {}",
+        selected_ssc_mode.as_str(),
+        payload.supi
+    );
 
     let default_5qi = subscriber_5qi
         .or(dnn_config.default_5qi)
@@ -275,7 +291,7 @@ pub async fn create_pdu_session(
 
     let response = PduSessionCreatedData {
         pdu_session_type: PduSessionType::Ipv4,
-        ssc_mode: "1".to_string(),
+        ssc_mode: sm_context.ssc_mode.as_str().to_string(),
         h_smf_uri: None,
         smf_uri: Some(format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id)),
         pdu_session_id: payload.pdu_session_id,

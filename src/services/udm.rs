@@ -1,5 +1,5 @@
 use crate::types::{
-    SessionManagementSubscriptionData, SdmSubscription,
+    udm::{SessionManagementSubscriptionData, SdmSubscription},
     Snssai, PlmnId,
 };
 use crate::types::nrf::ProblemDetails;

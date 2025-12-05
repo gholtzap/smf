@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use crate::types::{Guami, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai};
+use crate::types::{Guami, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +40,7 @@ pub struct PduSessionCreateData {
     pub ho_preparation_indication: Option<bool>,
     pub sel_mode: Option<DnnSelectionMode>,
     pub always_on_requested: Option<bool>,
+    pub ssc_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +188,7 @@ pub struct SmContext {
     pub dnn: String,
     pub s_nssai: Snssai,
     pub pdu_session_type: PduSessionType,
+    pub ssc_mode: SscMode,
     pub state: SmContextState,
     pub pdu_address: Option<PduAddress>,
     pub pfcp_session_id: Option<u64>,
@@ -207,6 +209,7 @@ impl SmContext {
             dnn: create_data.dnn.clone(),
             s_nssai: create_data.s_nssai.clone(),
             pdu_session_type: PduSessionType::Ipv4,
+            ssc_mode: SscMode::default(),
             state: SmContextState::ActivePending,
             pdu_address: None,
             pfcp_session_id: None,
