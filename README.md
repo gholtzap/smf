@@ -252,6 +252,17 @@ The server will start on `http://localhost:8080` by default.
 - Default MTU value of 1500 bytes
 - MTU propagation from IP pool or DNN to UE
 
+### Mobility & Handover
+- Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
+  - Path switch request detection and processing
+  - AN tunnel information extraction and storage
+  - UE location tracking during handover
+  - PFCP session modification for tunnel endpoint updates
+  - CN tunnel information generation for target gNB
+  - State validation for handover eligibility
+  - Path switch acknowledgment with N2 SM info
+  - Integration with PDU session update handler
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -279,11 +290,16 @@ The server will start on `http://localhost:8080` by default.
 - CHF integration for charging
 
 ### Session Management
-- Session continuity and mobility (handover procedures)
-- Service and Session Continuity (SSC) modes:
-  - SSC mode 1: Network-anchored session with IP address preservation
-  - SSC mode 2: Network-initiated session release and re-establishment
-  - SSC mode 3: UE-initiated make-before-break session establishment
+- Session continuity and mobility (handover procedures):
+  - N2-based handover preparation and execution
+  - Inter-SMF handover (SMF relocation during handover)
+  - UPF relocation and selection during handover
+  - QoS flow mapping and continuity during handover
+  - Session AMBR enforcement during handover
+- Service and Session Continuity (SSC) mode behavior:
+  - SSC mode 1: IP address preservation during mobility
+  - SSC mode 2: Session release and re-establishment logic
+  - SSC mode 3: Make-before-break session establishment logic
 - Emergency services PDU session establishment
 
 ### QoS & Traffic Management

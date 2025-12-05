@@ -199,6 +199,8 @@ pub struct SmContext {
     pub packet_filters: Vec<PacketFilter>,
     pub qos_rules: Vec<QosRule>,
     pub mtu: Option<u16>,
+    pub an_tunnel_info: Option<TunnelInfo>,
+    pub ue_location: Option<UserLocation>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -221,6 +223,8 @@ impl SmContext {
             packet_filters: vec![],
             qos_rules: vec![QosRule::new_default(1, 1)],
             mtu: None,
+            an_tunnel_info: None,
+            ue_location: create_data.ue_location.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

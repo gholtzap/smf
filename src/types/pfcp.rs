@@ -490,9 +490,30 @@ pub struct UpdatePdr {
 pub struct UpdateFar {
     pub far_id: u32,
     pub apply_action: Option<ApplyAction>,
-    pub forwarding_parameters: Option<ForwardingParameters>,
-    pub duplicating_parameters: Option<DuplicatingParameters>,
+    pub update_forwarding_parameters: Option<UpdateForwardingParameters>,
+    pub update_duplicating_parameters: Option<UpdateDuplicatingParameters>,
     pub bar_id: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateForwardingParameters {
+    pub destination_interface: Option<DestinationInterface>,
+    pub network_instance: Option<String>,
+    pub redirect_information: Option<RedirectInformation>,
+    pub outer_header_creation: Option<OuterHeaderCreation>,
+    pub transport_level_marking: Option<u16>,
+    pub forwarding_policy: Option<String>,
+    pub header_enrichment: Option<HeaderEnrichment>,
+    pub traffic_endpoint_id: Option<u8>,
+    pub proxying: Option<Proxying>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDuplicatingParameters {
+    pub destination_interface: Option<DestinationInterface>,
+    pub outer_header_creation: Option<OuterHeaderCreation>,
+    pub transport_level_marking: Option<u16>,
+    pub forwarding_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

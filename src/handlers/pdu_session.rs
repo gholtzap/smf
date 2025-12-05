@@ -7,11 +7,12 @@ use axum::{
 use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
+use crate::services::handover::HandoverService;
 use std::sync::Arc;
 
 pub async fn create_pdu_session(
@@ -398,6 +399,153 @@ pub async fn retrieve_pdu_session(
     Ok(Json(sm_context))
 }
 
+async fn handle_path_switch(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    HandoverService::validate_handover_state(&sm_context.state)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "Path switch request received for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context_ref
+    );
+
+    let an_tunnel_info = if let Some(ref n2_sm_info) = payload.n2_sm_info {
+        HandoverService::extract_an_tunnel_info(&n2_sm_info.n2_info_content.ngap_data)
+            .map_err(AppError::ValidationError)?
+    } else {
+        return Err(AppError::ValidationError(
+            "N2 SM Info required for path switch".to_string()
+        ));
+    };
+
+    tracing::info!(
+        "Extracted AN tunnel info - GTP TEID: {}, IPv4: {:?}",
+        an_tunnel_info.gtp_teid,
+        an_tunnel_info.ipv4_addr
+    );
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let mut new_state = crate::types::SmContextState::Active;
+    let mut cn_tunnel_info = None;
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        let upf_ipv4 = pfcp_client.upf_address().ip().to_string();
+
+        let an_ipv4_str = an_tunnel_info.ipv4_addr.as_ref()
+            .ok_or_else(|| AppError::ValidationError("AN IPv4 address required".to_string()))?;
+
+        let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid AN IPv4 address: {}", e))
+        })?;
+
+        match PfcpSessionManager::modify_session_for_handover(
+            pfcp_client,
+            seid,
+            an_ipv4,
+            &an_tunnel_info.gtp_teid,
+        ).await {
+            Ok(_) => {
+                tracing::info!(
+                    "PFCP Session modified for handover - SUPI: {}, SEID: {}, New AN: {}",
+                    sm_context.supi,
+                    seid,
+                    an_ipv4
+                );
+                cn_tunnel_info = Some(HandoverService::generate_cn_tunnel_info(
+                    &upf_ipv4,
+                    &format!("{:08x}", seid & 0xFFFFFFFF),
+                ));
+            }
+            Err(e) => {
+                new_state = crate::types::SmContextState::ModificationPending;
+                tracing::warn!(
+                    "Failed to modify PFCP session for handover - SUPI: {}: {}",
+                    sm_context.supi,
+                    e
+                );
+                return Err(AppError::ValidationError(format!(
+                    "PFCP session modification failed: {}",
+                    e
+                )));
+            }
+        }
+    } else {
+        return Err(AppError::ValidationError(
+            "PFCP client or session ID not available".to_string()
+        ));
+    }
+
+    let mut update_doc = doc! {
+        "$set": {
+            "state": mongodb::bson::to_bson(&new_state).unwrap(),
+            "an_tunnel_info": mongodb::bson::to_bson(&an_tunnel_info).unwrap(),
+            "updated_at": mongodb::bson::DateTime::now()
+        }
+    };
+
+    if let Some(ref ue_location) = payload.ue_location {
+        update_doc.get_document_mut("$set").unwrap().insert(
+            "ue_location",
+            mongodb::bson::to_bson(&ue_location).unwrap()
+        );
+        tracing::info!(
+            "Updated UE location for SUPI: {} during handover",
+            sm_context.supi
+        );
+    }
+
+    collection
+        .update_one(doc! { "_id": &sm_context_ref }, update_doc)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let response = PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n2_sm_info: Some(N2SmInfo {
+            content_id: "n2-sm-info".to_string(),
+            n2_info_content: N2InfoContent {
+                ngap_ie_type: NgapIeType::PduResModifyReq,
+                ngap_data: "base64_encoded_path_switch_ack".to_string(),
+            },
+        }),
+        n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
+        eps_bearer_info: None,
+        supported_features: None,
+        session_ambr: payload.session_ambr,
+        cn_tunnel_info,
+        additional_cn_tunnel_info: None,
+    };
+
+    tracing::info!(
+        "Path switch completed for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context_ref
+    );
+
+    Ok(Json(response))
+}
+
 pub async fn update_pdu_session(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
@@ -410,6 +558,10 @@ pub async fn update_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    if HandoverService::is_path_switch_request(&payload.n2_sm_info_type) {
+        return handle_path_switch(state, sm_context_ref, sm_context, payload).await;
+    }
 
     let mut new_state = crate::types::SmContextState::Active;
 
