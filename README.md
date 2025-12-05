@@ -244,6 +244,14 @@ The server will start on `http://localhost:8080` by default.
   - Allowed DNN list enforcement
   - Integration with slice-based configuration
 
+### MTU Configuration
+- MTU configuration per DNN (configurable in DNN profiles)
+- MTU configuration per IP pool (configurable in IP pool settings)
+- MTU value included in PDU session creation response
+- MTU value stored in SM context
+- Default MTU value of 1500 bytes
+- MTU propagation from IP pool or DNN to UE
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -277,9 +285,6 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode 2: Network-initiated session release and re-establishment
   - SSC mode 3: UE-initiated make-before-break session establishment
 - Emergency services PDU session establishment
-
-### IP & Network Configuration
-- MTU configuration
 
 ### QoS & Traffic Management
 - Slice-specific QoS policies

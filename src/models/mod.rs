@@ -143,6 +143,7 @@ pub struct PduSessionCreatedData {
     pub ue_ipv6_prefix: Option<String>,
     pub dns_primary: Option<String>,
     pub dns_secondary: Option<String>,
+    pub mtu: Option<u16>,
     pub n1_sm_info_to_ue: Option<RefToBinaryData>,
     pub eps_pdn_cnx_info: Option<EpsPdnCnxInfo>,
     pub supported_features: Option<String>,
@@ -197,6 +198,7 @@ pub struct SmContext {
     pub qos_flows: Vec<QosFlow>,
     pub packet_filters: Vec<PacketFilter>,
     pub qos_rules: Vec<QosRule>,
+    pub mtu: Option<u16>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -218,6 +220,7 @@ impl SmContext {
             qos_flows: vec![QosFlow::new_default(1)],
             packet_filters: vec![],
             qos_rules: vec![QosRule::new_default(1, 1)],
+            mtu: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

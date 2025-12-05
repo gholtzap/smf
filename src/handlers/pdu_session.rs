@@ -187,6 +187,8 @@ pub async fn create_pdu_session(
         dns_secondary: ip_allocation.dns_secondary.clone(),
     });
 
+    sm_context.mtu = ip_allocation.mtu.or(dnn_config.mtu);
+
     let ue_ipv4 = if !ip_allocation.ip_address.is_empty() {
         Some(ip_allocation.ip_address.parse().map_err(|e| {
             AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
@@ -318,6 +320,7 @@ pub async fn create_pdu_session(
         ue_ipv6_prefix: ipv6_addr,
         dns_primary: ip_allocation.dns_primary.clone(),
         dns_secondary: ip_allocation.dns_secondary.clone(),
+        mtu: sm_context.mtu,
         n1_sm_info_to_ue: None,
         eps_pdn_cnx_info: None,
         supported_features: None,
