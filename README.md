@@ -119,6 +119,19 @@ The server will start on `http://localhost:8080` by default.
   - Default QoS flow (5QI 9) automatically assigned to new PDU sessions
   - QoS flow validation (QFI range 0-63, bit rate validation, flow type enforcement)
   - Integration with PDU session create and update handlers
+- Packet Filter Management
+  - Packet filter creation and parsing
+  - SDF (Service Data Flow) template matching
+  - Flow description parsing (IP 5-tuple)
+  - Uplink and downlink packet filter direction handling
+  - Packet filter CRUD operations (add/modify/delete/get)
+  - Packet filter validation (ID, precedence, components, QFI)
+  - IPv4 and IPv6 address filtering with masks and prefix lengths
+  - Port filtering (single port and port ranges)
+  - Protocol identifier filtering
+  - Type of Service (TOS) and flow label filtering
+  - SDF template to packet filter conversion endpoints
+  - Integration with PDU session management
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -154,11 +167,6 @@ The server will start on `http://localhost:8080` by default.
   - QoS rule creation with precedence and priority
   - QoS rule application to PDU sessions
   - Dynamic QoS rule updates
-- Packet Filter Management
-  - Packet filter creation and parsing
-  - SDF (Service Data Flow) template matching
-  - Flow description parsing (IP 5-tuple)
-  - Uplink and downlink packet filter direction handling
 - Network Slice Selection
   - S-NSSAI based slice selection
   - DNN (Data Network Name) based routing

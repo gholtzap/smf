@@ -7,3 +7,4 @@ pub mod nrf;
 pub mod nrf_registration;
 pub mod nrf_discovery;
 pub mod qos_flow;
+pub mod packet_filter;

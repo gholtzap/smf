@@ -4,6 +4,7 @@ mod handlers;
 mod models;
 mod services;
 mod types;
+mod utils;
 
 use axum::{Router, routing::{get, post, put, delete}};
 use std::net::SocketAddr;
@@ -43,6 +44,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/release", post(handlers::pdu_session::release_pdu_session))
         .route("/nsmf-pdusession/v1/ue-contexts/:supi/sm-contexts", get(handlers::pdu_session::list_ue_pdu_sessions))
         .route("/nsmf-pdusession/v1/ue-contexts/:supi/sm-contexts/:pduSessionId", get(handlers::pdu_session::retrieve_pdu_session_by_supi))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", post(handlers::packet_filter::add_packet_filters))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", get(handlers::packet_filter::get_packet_filters))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", delete(handlers::packet_filter::remove_packet_filters))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters/modify", post(handlers::packet_filter::modify_packet_filter))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters/from-sdf", post(handlers::packet_filter::add_packet_filters_from_sdf))
         .route("/nsmf-event-exposure/v1/subscriptions", post(handlers::event_exposure::create_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
