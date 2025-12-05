@@ -5,3 +5,4 @@ pub mod ipam;
 pub mod upf_health;
 pub mod nrf;
 pub mod nrf_registration;
+pub mod nrf_discovery;

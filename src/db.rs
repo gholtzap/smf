@@ -4,6 +4,7 @@ use crate::services::notification::NotificationService;
 use crate::services::pfcp::PfcpClient;
 use crate::services::nrf::NrfClient;
 use crate::services::nrf_registration::NrfRegistrationService;
+use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::config::Config;
 
 #[derive(Clone)]
@@ -12,6 +13,7 @@ pub struct AppState {
     pub notification_service: Arc<NotificationService>,
     pub pfcp_client: Option<PfcpClient>,
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
+    pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -57,21 +59,27 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         }
     };
 
-    let nrf_registration = if let Some(nrf_uri) = &config.nrf_uri {
+    let (nrf_registration, nrf_discovery) = if let Some(nrf_uri) = &config.nrf_uri {
         let nrf_client = Arc::new(NrfClient::new(
             nrf_uri.clone(),
             config.nf_instance_id.clone(),
         ));
 
         let registration_service = Arc::new(NrfRegistrationService::new(
-            nrf_client,
+            nrf_client.clone(),
             config.clone(),
         ));
 
-        Some(registration_service)
+        let discovery_service = Arc::new(NrfDiscoveryService::new(
+            nrf_client,
+            config.smf_host.clone(),
+            config.port,
+        ));
+
+        (Some(registration_service), Some(discovery_service))
     } else {
         tracing::warn!("NRF_URI not configured. SMF will not register with NRF.");
-        None
+        (None, None)
     };
 
     Ok(AppState {
@@ -79,5 +87,6 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         notification_service,
         pfcp_client,
         nrf_registration,
+        nrf_discovery,
     })
 }
