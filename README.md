@@ -110,6 +110,17 @@ The server will start on `http://localhost:8080` by default.
   - Filtering by NF status (registered/suspended/undiscoverable)
   - TAI and TAI range matching for location-based selection
   - Service URI extraction from NFProfile and NFService
+- AMF client implementation (HTTP client for Namf service endpoints)
+  - AMF client with support for N1N2 message transfer operations
+  - N1N2MessageTransfer endpoint support (POST /namf-comm/v1/ue-contexts/{ueId}/n1-n2-messages)
+  - N1N2MessageTransfer status query (GET /namf-comm/v1/ue-contexts/{ueId}/n1-n2-messages/{transactionId})
+  - UE context transfer support (POST /namf-comm/v1/ue-contexts/{ueId}/transfer)
+  - UE context release support (DELETE /namf-comm/v1/ue-contexts/{ueId})
+  - N2 info notification callback support
+  - Multipart message handling for N1/N2 binary data
+  - N1 message container types (SM, LPP, SMS, UPDP classes)
+  - N2 information container types (SM, NRPPA, PWS classes)
+  - UE context transfer types with access type and mobility registration support
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -193,7 +204,6 @@ The server will start on `http://localhost:8080` by default.
 
 ### Network Function Integration - Other NFs
 - AMF communication (Namf callbacks) for N1/N2 messaging
-  - AMF client implementation (HTTP client for Namf service endpoints)
   - N1 message container handling (NAS messages)
   - N2 message container handling (NGAP messages)
   - N1N2MessageTransfer endpoint implementation

@@ -12,3 +12,4 @@ pub mod qos_rule;
 pub mod slice_selection;
 pub mod dnn_selector;
 pub mod amf_selector;
+pub mod amf;
