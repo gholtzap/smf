@@ -1,4 +1,6 @@
-use mongodb::{Client, Database};
+use mongodb::{Client, Database, IndexModel};
+use mongodb::bson::doc;
+use mongodb::options::IndexOptions;
 use std::sync::Arc;
 use crate::services::notification::NotificationService;
 use crate::services::pfcp::PfcpClient;
@@ -6,6 +8,7 @@ use crate::services::nrf::NrfClient;
 use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::config::Config;
+use crate::models::SmContext;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +24,8 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let db = client.database("smf");
 
     tracing::info!("Connected to MongoDB");
+
+    init_indexes(&db).await?;
 
     crate::services::ipam::IpamService::init_default_pool(&db).await?;
 
@@ -89,4 +94,19 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         nrf_registration,
         nrf_discovery,
     })
+}
+
+async fn init_indexes(db: &Database) -> anyhow::Result<()> {
+    let collection = db.collection::<SmContext>("sm_contexts");
+
+    let index = IndexModel::builder()
+        .keys(doc! { "supi": 1, "pdu_session_id": 1 })
+        .options(IndexOptions::builder().unique(true).build())
+        .build();
+
+    collection.create_index(index).await?;
+
+    tracing::info!("Created unique index on (supi, pdu_session_id)");
+
+    Ok(())
 }

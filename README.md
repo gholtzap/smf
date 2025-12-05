@@ -102,6 +102,12 @@ The server will start on `http://localhost:8080` by default.
   - ActivePending -> Active transition during PDU session creation after PFCP session establishment
   - Active -> ModificationPending -> Active transitions during PDU session updates
   - Active -> InactivePending transition during PDU session release
+- Multi-PDU session per UE support
+  - Unique constraint on (SUPI, PDU Session ID) to prevent duplicates
+  - Validation on PDU session creation to reject duplicate session IDs
+  - List all PDU sessions for a UE endpoint (GET /nsmf-pdusession/v1/ue-contexts/{supi}/sm-contexts)
+  - Retrieve PDU session by SUPI and PDU Session ID endpoint (GET /nsmf-pdusession/v1/ue-contexts/{supi}/sm-contexts/{pduSessionId})
+  - MongoDB index optimization for session lookups by SUPI
 
 ### QoS & Traffic Management
 - QoS Flow Management
@@ -134,7 +140,6 @@ The server will start on `http://localhost:8080` by default.
 - CHF integration for charging
 
 ### Session Management
-- Multi-PDU session per UE support
 - Session continuity and mobility (handover procedures)
 - Service and Session Continuity (SSC) modes (1/2/3)
 - Emergency services PDU session establishment

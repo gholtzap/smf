@@ -5,18 +5,32 @@ use axum::{
     Json,
 };
 use mongodb::{bson::doc, Collection};
+use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
+use std::sync::Arc;
 
 pub async fn create_pdu_session(
     State(state): State<AppState>,
     Json(payload): Json<PduSessionCreateData>,
 ) -> Result<Json<PduSessionCreatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let existing = collection
+        .find_one(doc! { "supi": &payload.supi, "pdu_session_id": payload.pdu_session_id as i32 })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if existing.is_some() {
+        return Err(AppError::ValidationError(format!(
+            "PDU Session already exists for SUPI {} with PDU Session ID {}",
+            payload.supi, payload.pdu_session_id
+        )));
+    }
 
     let mut sm_context = SmContext::new(&payload);
 
@@ -184,7 +198,7 @@ pub async fn update_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let qos_mgr = QosFlowManager::new(state.db.clone());
+    let qos_mgr = QosFlowManager::new(Arc::new(state.db.clone()));
 
     let mut add_qos_flows: Vec<QosFlow> = Vec::new();
     let mut remove_qfis: Vec<u8> = Vec::new();
@@ -398,4 +412,52 @@ impl IntoResponse for AppError {
 
         (status, message).into_response()
     }
+}
+
+pub async fn list_ue_pdu_sessions(
+    State(state): State<AppState>,
+    Path(supi): Path<String>,
+) -> Result<Json<Vec<SmContext>>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sessions: Vec<SmContext> = collection
+        .find(doc! { "supi": &supi })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .try_collect()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    tracing::info!(
+        "Retrieved {} PDU sessions for SUPI: {}",
+        sessions.len(),
+        supi
+    );
+
+    Ok(Json(sessions))
+}
+
+pub async fn retrieve_pdu_session_by_supi(
+    State(state): State<AppState>,
+    Path((supi, pdu_session_id)): Path<(String, u8)>,
+) -> Result<Json<SmContext>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "supi": &supi, "pdu_session_id": pdu_session_id as i32 })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!(
+            "SM Context not found for SUPI {} with PDU Session ID {}",
+            supi, pdu_session_id
+        )))?;
+
+    tracing::info!(
+        "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        supi,
+        pdu_session_id,
+        sm_context.id
+    );
+
+    Ok(Json(sm_context))
 }

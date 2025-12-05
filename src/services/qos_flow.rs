@@ -36,7 +36,7 @@ impl QosFlowManager {
                 }
             },
             "$set": {
-                "updated_at": chrono::Utc::now()
+                "updated_at": mongodb::bson::DateTime::now()
             }
         };
 
@@ -70,7 +70,7 @@ impl QosFlowManager {
             "$set": {
                 "qos_flows.$": mongodb::bson::to_bson(&qos_flow)
                     .map_err(|e| format!("Failed to serialize QoS flow: {}", e))?,
-                "updated_at": chrono::Utc::now()
+                "updated_at": mongodb::bson::DateTime::now()
             }
         };
 
@@ -103,7 +103,7 @@ impl QosFlowManager {
                 }
             },
             "$set": {
-                "updated_at": chrono::Utc::now()
+                "updated_at": mongodb::bson::DateTime::now()
             }
         };
 
