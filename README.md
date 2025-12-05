@@ -132,6 +132,17 @@ The server will start on `http://localhost:8080` by default.
   - Type of Service (TOS) and flow label filtering
   - SDF template to packet filter conversion endpoints
   - Integration with PDU session management
+- QoS Rule Enforcement
+  - QoS rule creation with precedence and priority
+  - QoS rule application to PDU sessions
+  - Dynamic QoS rule updates
+  - QoS rule to QoS flow and packet filter mapping
+  - Default QoS rule automatically assigned to new PDU sessions
+  - QoS rule validation (precedence, QFI, packet filter references)
+  - Rule operation codes (create, delete, modify)
+  - CRUD operations for QoS rules (add/modify/delete/get)
+  - QoS rule application endpoint for enforcement
+  - Integration with PDU session management
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -163,10 +174,6 @@ The server will start on `http://localhost:8080` by default.
 - IPv4 and IPv6 dual-stack support
 
 ### QoS & Traffic Management
-- QoS Rule Enforcement
-  - QoS rule creation with precedence and priority
-  - QoS rule application to PDU sessions
-  - Dynamic QoS rule updates
 - Network Slice Selection
   - S-NSSAI based slice selection
   - DNN (Data Network Name) based routing
