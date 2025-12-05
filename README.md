@@ -157,6 +157,17 @@ The server will start on `http://localhost:8080` by default.
   - Slice-specific IP pool assignment
   - Allowed slice list enforcement
   - Automatic slice selection and configuration application
+- DNN (Data Network Name) based routing
+  - DNN configuration with description and routing parameters
+  - Pre-configured DNN profiles (internet, ims, edge)
+  - DNN validation during PDU session creation
+  - DNN-specific IP pool assignment
+  - DNN-specific session AMBR (uplink/downlink bit rates)
+  - DNN-specific QoS profiles (5QI assignment per DNN)
+  - DNN-specific MTU configuration
+  - DNN priority-based selection
+  - Allowed DNN list enforcement
+  - Integration with slice-based configuration
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -187,7 +198,6 @@ The server will start on `http://localhost:8080` by default.
 - IPv4 and IPv6 dual-stack support
 
 ### QoS & Traffic Management
-- DNN (Data Network Name) based routing
 - Slice-specific QoS policies
 
 ### Security

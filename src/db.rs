@@ -8,6 +8,7 @@ use crate::services::nrf::NrfClient;
 use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::services::slice_selection::SliceSelector;
+use crate::services::dnn_selector::DnnSelector;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -19,6 +20,7 @@ pub struct AppState {
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
+    pub dnn_selector: Arc<DnnSelector>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -92,6 +94,9 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let slice_selector = Arc::new(SliceSelector::new());
     tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
 
+    let dnn_selector = Arc::new(DnnSelector::new());
+    tracing::info!("DNN selector initialized with {} configured DNNs", dnn_selector.list_allowed_dnns().len());
+
     Ok(AppState {
         db,
         notification_service,
@@ -99,6 +104,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         nrf_registration,
         nrf_discovery,
         slice_selector,
+        dnn_selector,
     })
 }
 

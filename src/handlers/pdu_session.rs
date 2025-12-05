@@ -33,6 +33,18 @@ pub async fn create_pdu_session(
         payload.s_nssai.sd
     );
 
+    let dnn_config = state
+        .dnn_selector
+        .validate_dnn(&payload.dnn)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "DNN validated for SUPI: {}, DNN: {}, Description: {}",
+        payload.supi,
+        dnn_config.dnn,
+        dnn_config.description
+    );
+
     let existing = collection
         .find_one(doc! { "supi": &payload.supi, "pdu_session_id": payload.pdu_session_id as i32 })
         .await
@@ -47,12 +59,19 @@ pub async fn create_pdu_session(
 
     let mut sm_context = SmContext::new(&payload);
 
-    if let Some(default_5qi) = slice_config.default_5qi {
-        sm_context.qos_flows = vec![QosFlow::new_with_5qi(1, default_5qi)];
-        tracing::debug!("Applied slice-specific default 5QI: {} for slice {}", default_5qi, slice_config.slice_name);
-    }
+    let default_5qi = dnn_config.default_5qi
+        .or(slice_config.default_5qi)
+        .unwrap_or(9);
 
-    let ip_pool_name = slice_config.ip_pool_name.as_deref().unwrap_or("default");
+    sm_context.qos_flows = vec![QosFlow::new_with_5qi(1, default_5qi)];
+    tracing::debug!(
+        "Applied default 5QI: {} for DNN: {}, Slice: {}",
+        default_5qi,
+        dnn_config.dnn,
+        slice_config.slice_name
+    );
+
+    let ip_pool_name = &dnn_config.ip_pool_name;
     let ip_allocation = IpamService::allocate_ip(
         &state.db,
         ip_pool_name,
@@ -131,8 +150,8 @@ pub async fn create_pdu_session(
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: Some(Ambr {
-            uplink: slice_config.default_session_ambr_uplink.clone(),
-            downlink: slice_config.default_session_ambr_downlink.clone(),
+            uplink: dnn_config.default_session_ambr_uplink.clone(),
+            downlink: dnn_config.default_session_ambr_downlink.clone(),
         }),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
@@ -149,10 +168,11 @@ pub async fn create_pdu_session(
     };
 
     tracing::info!(
-        "Created PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, Slice: {} (SST: {}, SD: {:?})",
+        "Created PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, DNN: {}, Slice: {} (SST: {}, SD: {:?})",
         payload.supi,
         payload.pdu_session_id,
         sm_context.id,
+        dnn_config.dnn,
         slice_config.slice_name,
         payload.s_nssai.sst,
         payload.s_nssai.sd
