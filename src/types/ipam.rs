@@ -11,6 +11,11 @@ pub struct IpPool {
     pub dns_primary: Option<String>,
     pub dns_secondary: Option<String>,
     pub allocated_ips: Vec<String>,
+    pub ipv6_cidr: Option<String>,
+    pub ipv6_gateway: Option<String>,
+    pub ipv6_dns_primary: Option<String>,
+    pub ipv6_dns_secondary: Option<String>,
+    pub allocated_ipv6_prefixes: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -20,6 +25,7 @@ pub struct IpAllocation {
     #[serde(rename = "_id")]
     pub id: String,
     pub ip_address: String,
+    pub ipv6_prefix: Option<String>,
     pub pool_id: String,
     pub sm_context_ref: String,
     pub supi: String,
@@ -32,4 +38,8 @@ pub struct IpAllocationResult {
     pub gateway: String,
     pub dns_primary: Option<String>,
     pub dns_secondary: Option<String>,
+    pub ipv6_prefix: Option<String>,
+    pub ipv6_gateway: Option<String>,
+    pub ipv6_dns_primary: Option<String>,
+    pub ipv6_dns_secondary: Option<String>,
 }

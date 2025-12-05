@@ -73,6 +73,16 @@ The server will start on `http://localhost:8080` by default.
   - DNS server addresses included in PDU session creation response
   - DNS configuration stored in PDU address structure
   - Automatic DNS propagation from IPAM to UE
+- IPv4 and IPv6 dual-stack support
+  - IPv4-only PDU sessions (PduSessionType::Ipv4)
+  - IPv6-only PDU sessions (PduSessionType::Ipv6)
+  - Dual-stack PDU sessions (PduSessionType::Ipv4v6)
+  - IPv6 prefix delegation (/64 subnets from configurable pools)
+  - Default IPv6 pool: 2001:db8::/32 with DNS servers (2001:4860:4860::8888, 2001:4860:4860::8844)
+  - IPv6 prefix allocation tracking in MongoDB
+  - Automatic IPv6 prefix release on session termination
+  - PDU session type selection based on UE request
+  - IPv6 gateway and DNS configuration per pool
 
 ### UPF Health Monitoring
 - UPF node discovery and health monitoring
@@ -270,7 +280,6 @@ The server will start on `http://localhost:8080` by default.
 
 ### IP & Network Configuration
 - MTU configuration
-- IPv4 and IPv6 dual-stack support
 
 ### QoS & Traffic Management
 - Slice-specific QoS policies

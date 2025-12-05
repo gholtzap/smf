@@ -41,6 +41,7 @@ pub struct PduSessionCreateData {
     pub sel_mode: Option<DnnSelectionMode>,
     pub always_on_requested: Option<bool>,
     pub ssc_mode: Option<String>,
+    pub pdu_session_type: Option<PduSessionType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,7 +209,7 @@ impl SmContext {
             pdu_session_id: create_data.pdu_session_id,
             dnn: create_data.dnn.clone(),
             s_nssai: create_data.s_nssai.clone(),
-            pdu_session_type: PduSessionType::Ipv4,
+            pdu_session_type: create_data.pdu_session_type.clone().unwrap_or(PduSessionType::Ipv4),
             ssc_mode: SscMode::default(),
             state: SmContextState::ActivePending,
             pdu_address: None,

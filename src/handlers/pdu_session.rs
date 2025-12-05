@@ -167,21 +167,33 @@ pub async fn create_pdu_session(
         ip_pool_name,
         &sm_context.id,
         &payload.supi,
+        &sm_context.pdu_session_type,
     )
     .await
     .map_err(|e| AppError::ValidationError(format!("IP allocation failed: {}", e)))?;
 
+    let (ipv4_addr, ipv6_addr) = match sm_context.pdu_session_type {
+        PduSessionType::Ipv4 => (Some(ip_allocation.ip_address.clone()), None),
+        PduSessionType::Ipv6 => (None, ip_allocation.ipv6_prefix.clone()),
+        PduSessionType::Ipv4v6 => (Some(ip_allocation.ip_address.clone()), ip_allocation.ipv6_prefix.clone()),
+        _ => (None, None),
+    };
+
     sm_context.pdu_address = Some(PduAddress {
-        pdu_session_type: PduSessionType::Ipv4,
-        ipv4_addr: Some(ip_allocation.ip_address.clone()),
-        ipv6_addr: None,
+        pdu_session_type: sm_context.pdu_session_type.clone(),
+        ipv4_addr: ipv4_addr.clone(),
+        ipv6_addr: ipv6_addr.clone(),
         dns_primary: ip_allocation.dns_primary.clone(),
         dns_secondary: ip_allocation.dns_secondary.clone(),
     });
 
-    let ue_ipv4 = ip_allocation.ip_address.parse().map_err(|e| {
-        AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
-    })?;
+    let ue_ipv4 = if !ip_allocation.ip_address.is_empty() {
+        Some(ip_allocation.ip_address.parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
+        })?)
+    } else {
+        None
+    };
 
     if let Some(ref pcf_client) = state.pcf_client {
         let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
@@ -199,8 +211,8 @@ pub async fn create_pdu_session(
             dnn: payload.dnn.clone(),
             slice_info: payload.s_nssai.clone(),
             notification_uri,
-            ipv4_address: Some(ip_allocation.ip_address.clone()),
-            ipv6_address_prefix: None,
+            ipv4_address: ipv4_addr.clone(),
+            ipv6_address_prefix: ipv6_addr.clone(),
             ip_domain: None,
             subs_sess_ambr: None,
             auth_prof_index: None,
@@ -255,13 +267,14 @@ pub async fn create_pdu_session(
             AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
         })?;
 
-        match PfcpSessionManager::establish_session(
-            pfcp_client,
-            seid,
-            ue_ipv4,
-            upf_ipv4,
-            &sm_context.qos_flows,
-        ).await {
+        if let Some(ue_ipv4_addr) = ue_ipv4 {
+            match PfcpSessionManager::establish_session(
+                pfcp_client,
+                seid,
+                ue_ipv4_addr,
+                upf_ipv4,
+                &sm_context.qos_flows,
+            ).await {
             Ok(_) => {
                 sm_context.pfcp_session_id = Some(seid);
                 sm_context.state = crate::types::SmContextState::Active;
@@ -279,6 +292,10 @@ pub async fn create_pdu_session(
                 );
             }
         }
+        } else {
+            sm_context.state = crate::types::SmContextState::Active;
+            tracing::debug!("IPv6-only PDU session, PFCP IPv6 support pending, State: Active");
+        }
     } else {
         sm_context.state = crate::types::SmContextState::Active;
         tracing::debug!("PFCP client not available, skipping PFCP session establishment, State: Active");
@@ -290,15 +307,15 @@ pub async fn create_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     let response = PduSessionCreatedData {
-        pdu_session_type: PduSessionType::Ipv4,
+        pdu_session_type: sm_context.pdu_session_type.clone(),
         ssc_mode: sm_context.ssc_mode.as_str().to_string(),
         h_smf_uri: None,
         smf_uri: Some(format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id)),
         pdu_session_id: payload.pdu_session_id,
         s_nssai: payload.s_nssai.clone(),
         enable_pause_charging: Some(false),
-        ue_ipv4_address: Some(ip_allocation.ip_address.clone()),
-        ue_ipv6_prefix: None,
+        ue_ipv4_address: ipv4_addr,
+        ue_ipv6_prefix: ipv6_addr,
         dns_primary: ip_allocation.dns_primary.clone(),
         dns_secondary: ip_allocation.dns_secondary.clone(),
         n1_sm_info_to_ue: None,
