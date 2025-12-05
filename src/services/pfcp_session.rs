@@ -1,5 +1,6 @@
 use crate::services::pfcp::{PfcpClient, PfcpClientInner};
 use crate::types::pfcp::*;
+use crate::types::{QosFlow, QosFlowType};
 use anyhow::{anyhow, Result};
 use std::net::Ipv4Addr;
 use tracing::{info, warn};
@@ -7,11 +8,44 @@ use tracing::{info, warn};
 pub struct PfcpSessionManager;
 
 impl PfcpSessionManager {
+    fn create_qer_from_qos_flow(qos_flow: &QosFlow) -> CreateQer {
+        let (gbr, mbr) = match &qos_flow.qos_flow_type {
+            QosFlowType::GBR | QosFlowType::DelayGBR => {
+                let gbr = qos_flow.gfbr.as_ref().map(|gfbr| Gbr {
+                    ul_gbr: gfbr.uplink,
+                    dl_gbr: gfbr.downlink,
+                });
+                let mbr = qos_flow.mfbr.as_ref().map(|mfbr| Mbr {
+                    ul_mbr: mfbr.uplink,
+                    dl_mbr: mfbr.downlink,
+                });
+                (gbr, mbr)
+            }
+            QosFlowType::NonGBR => (None, None),
+        };
+
+        CreateQer {
+            qer_id: qos_flow.qfi as u32,
+            qer_correlation_id: None,
+            gate_status: GateStatus {
+                ul_gate: GateState::Open,
+                dl_gate: GateState::Open,
+            },
+            mbr,
+            gbr,
+            packet_rate: None,
+            dl_flow_level_marking: None,
+            qos_flow_identifier: Some(qos_flow.qfi),
+            reflective_qos: None,
+        }
+    }
+
     pub async fn establish_session(
         pfcp_client: &PfcpClient,
         seid: u64,
         ue_ipv4: Ipv4Addr,
         upf_ipv4: Ipv4Addr,
+        qos_flows: &[QosFlow],
     ) -> Result<PfcpSessionEstablishmentResponse> {
         let node_id = NodeId {
             node_id_type: NodeIdType::Ipv4Address,
@@ -27,6 +61,12 @@ impl PfcpSessionManager {
         let pdr_id = 1u16;
         let far_id_ul = 1u32;
         let far_id_dl = 2u32;
+
+        let qer_ids: Vec<u32> = if !qos_flows.is_empty() {
+            qos_flows.iter().map(|qf| qf.qfi as u32).collect()
+        } else {
+            vec![]
+        };
 
         let pdr_ul = CreatePdr {
             pdr_id,
@@ -59,7 +99,7 @@ impl PfcpSessionManager {
                 gtpu_extension_header_deletion: None,
             }),
             far_id: far_id_ul,
-            qer_id: None,
+            qer_id: if !qer_ids.is_empty() { Some(qer_ids.clone()) } else { None },
             urr_id: None,
             activation_time: None,
             deactivation_time: None,
@@ -88,7 +128,7 @@ impl PfcpSessionManager {
             },
             outer_header_removal: None,
             far_id: far_id_dl,
-            qer_id: None,
+            qer_id: if !qer_ids.is_empty() { Some(qer_ids) } else { None },
             urr_id: None,
             activation_time: None,
             deactivation_time: None,
@@ -150,12 +190,18 @@ impl PfcpSessionManager {
             bar_id: None,
         };
 
+        let create_qer = if !qos_flows.is_empty() {
+            Some(qos_flows.iter().map(|qf| Self::create_qer_from_qos_flow(qf)).collect())
+        } else {
+            None
+        };
+
         let request = PfcpSessionEstablishmentRequest {
             node_id,
             f_seid,
             create_pdr: vec![pdr_ul, pdr_dl],
             create_far: vec![far_ul, far_dl],
-            create_qer: None,
+            create_qer,
             create_urr: None,
             pdn_type: Some(PdnType::Ipv4),
             user_plane_inactivity_timer: Some(300),
@@ -187,6 +233,8 @@ impl PfcpSessionManager {
         pfcp_client: &PfcpClient,
         seid: u64,
         ue_ipv4: Option<Ipv4Addr>,
+        add_qos_flows: Option<&[QosFlow]>,
+        remove_qfis: Option<&[u8]>,
     ) -> Result<PfcpSessionModificationResponse> {
         let mut request = PfcpSessionModificationRequest {
             f_seid: None,
@@ -237,6 +285,18 @@ impl PfcpSessionManager {
                 deactivation_time: None,
             };
             request.update_pdr = Some(vec![update_pdr]);
+        }
+
+        if let Some(qos_flows) = add_qos_flows {
+            if !qos_flows.is_empty() {
+                request.create_qer = Some(qos_flows.iter().map(|qf| Self::create_qer_from_qos_flow(qf)).collect());
+            }
+        }
+
+        if let Some(qfis) = remove_qfis {
+            if !qfis.is_empty() {
+                request.remove_qer = Some(qfis.iter().map(|&qfi| RemoveQer { qer_id: qfi as u32 }).collect());
+            }
         }
 
         pfcp_client.send_session_modification_request(seid, &request).await?;

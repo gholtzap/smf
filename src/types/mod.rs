@@ -3,6 +3,7 @@ pub mod pfcp;
 pub mod ipam;
 pub mod upf;
 pub mod nrf;
+pub mod qos;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +12,7 @@ pub use pfcp::*;
 pub use ipam::*;
 pub use upf::*;
 pub use nrf::*;
+pub use qos::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

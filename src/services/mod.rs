@@ -6,3 +6,4 @@ pub mod upf_health;
 pub mod nrf;
 pub mod nrf_registration;
 pub mod nrf_discovery;
+pub mod qos_flow;

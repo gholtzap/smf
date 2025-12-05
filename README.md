@@ -103,6 +103,17 @@ The server will start on `http://localhost:8080` by default.
   - Active -> ModificationPending -> Active transitions during PDU session updates
   - Active -> InactivePending transition during PDU session release
 
+### QoS & Traffic Management
+- QoS Flow Management
+  - QoS flow creation with QFI (QoS Flow Identifier) assignment
+  - QoS flow modification (add/modify/delete flows)
+  - QoS flow to PFCP QER (QoS Enforcement Rule) mapping
+  - 5QI (5G QoS Identifier) handling with standardized QoS profiles (5QI 1-9, 65-67, 69-70, 79-80)
+  - GBR (Guaranteed Bit Rate) and non-GBR flow support
+  - Default QoS flow (5QI 9) automatically assigned to new PDU sessions
+  - QoS flow validation (QFI range 0-63, bit rate validation, flow type enforcement)
+  - Integration with PDU session create and update handlers
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -134,10 +145,19 @@ The server will start on `http://localhost:8080` by default.
 - IPv4 and IPv6 dual-stack support
 
 ### QoS & Traffic Management
-- QoS flow management
-- QoS rule enforcement
-- Packet filter management
-- Network slice selection
+- QoS Rule Enforcement
+  - QoS rule creation with precedence and priority
+  - QoS rule application to PDU sessions
+  - Dynamic QoS rule updates
+- Packet Filter Management
+  - Packet filter creation and parsing
+  - SDF (Service Data Flow) template matching
+  - Flow description parsing (IP 5-tuple)
+  - Uplink and downlink packet filter direction handling
+- Network Slice Selection
+  - S-NSSAI based slice selection
+  - DNN (Data Network Name) based routing
+  - Slice-specific QoS policies
 
 ### Security
 - OAuth2 authentication for SBI

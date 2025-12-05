@@ -7,9 +7,10 @@ use axum::{
 use mongodb::{bson::doc, Collection};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
+use crate::services::qos_flow::QosFlowManager;
 
 pub async fn create_pdu_session(
     State(state): State<AppState>,
@@ -50,6 +51,7 @@ pub async fn create_pdu_session(
             seid,
             ue_ipv4,
             upf_ipv4,
+            &sm_context.qos_flows,
         ).await {
             Ok(_) => {
                 sm_context.pfcp_session_id = Some(seid);
@@ -182,8 +184,45 @@ pub async fn update_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+    let qos_mgr = QosFlowManager::new(state.db.clone());
+
+    let mut add_qos_flows: Vec<QosFlow> = Vec::new();
+    let mut remove_qfis: Vec<u8> = Vec::new();
+
+    if let Some(ref qos_flows_add_mod) = payload.qos_flows_add_mod_request_list {
+        for qf_item in qos_flows_add_mod {
+            let qos_flow = if let Some(ref profile) = qf_item.qos_profile {
+                QosFlow::new_with_5qi(qf_item.qfi, profile.five_qi)
+            } else {
+                QosFlow::new_default(qf_item.qfi)
+            };
+            add_qos_flows.push(qos_flow.clone());
+        }
+
+        if !add_qos_flows.is_empty() {
+            if let Err(e) = qos_mgr.add_qos_flows(&sm_context_ref, add_qos_flows.clone()).await {
+                tracing::warn!("Failed to add QoS flows: {}", e);
+            }
+        }
+    }
+
+    if let Some(ref qos_flows_rel) = payload.qos_flows_rel_request_list {
+        for qf_item in qos_flows_rel {
+            remove_qfis.push(qf_item.qfi);
+        }
+
+        if !remove_qfis.is_empty() {
+            if let Err(e) = qos_mgr.remove_qos_flows(&sm_context_ref, remove_qfis.clone()).await {
+                tracing::warn!("Failed to remove QoS flows: {}", e);
+            }
+        }
+    }
+
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        match PfcpSessionManager::modify_session(pfcp_client, seid, None).await {
+        let add_flows_opt = if !add_qos_flows.is_empty() { Some(add_qos_flows.as_slice()) } else { None };
+        let remove_qfis_opt = if !remove_qfis.is_empty() { Some(remove_qfis.as_slice()) } else { None };
+
+        match PfcpSessionManager::modify_session(pfcp_client, seid, None, add_flows_opt, remove_qfis_opt).await {
             Ok(_) => {
                 tracing::info!(
                     "PFCP Session modified for SUPI: {}, SEID: {}, State: ModificationPending -> Active",

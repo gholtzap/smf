@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use crate::types::{Guami, N2SmInfo, PduAddress, PduSessionType, RefToBinaryData, SmContextState, Snssai};
+use crate::types::{Guami, N2SmInfo, PduAddress, PduSessionType, QosFlow, RefToBinaryData, SmContextState, Snssai};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +188,7 @@ pub struct SmContext {
     pub state: SmContextState,
     pub pdu_address: Option<PduAddress>,
     pub pfcp_session_id: Option<u64>,
+    pub qos_flows: Vec<QosFlow>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -204,6 +205,7 @@ impl SmContext {
             state: SmContextState::ActivePending,
             pdu_address: None,
             pfcp_session_id: None,
+            qos_flows: vec![QosFlow::new_default(1)],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
