@@ -21,6 +21,7 @@ UPF_PORT=8805
 PFCP_BIND_ADDR=0.0.0.0
 PFCP_BIND_PORT=8805
 NRF_URI=http://localhost:8000
+PCF_URI=http://localhost:8001
 NF_INSTANCE_ID=
 SMF_HOST=127.0.0.1
 ```
@@ -131,6 +132,19 @@ The server will start on `http://localhost:8080` by default.
   - SDM subscription deletion endpoint (DELETE /nudm-sdm/v2/{supi}/sdm-subscriptions/{subscriptionId})
   - Session management subscription data types (DNN configurations, QoS profiles, AMBR, SSC modes)
   - Support for query parameters (S-NSSAI, DNN, PLMN ID)
+- PCF client implementation (HTTP client for Npcf service endpoints)
+  - PCF client data models for Npcf_SMPolicyControl (SM Policy Control)
+  - SM policy context data models (SmPolicyContextData, SmPolicyUpdateContextData)
+  - SM policy decision data models (SmPolicyDecision, PccRule, QosData, ChargingData)
+  - PCF client HTTP implementation with error handling
+  - SM policy creation endpoint (POST /npcf-smpolicycontrol/v1/sm-policies)
+  - SM policy update endpoint (POST /npcf-smpolicycontrol/v1/sm-policies/{policyId}/update)
+  - SM policy deletion endpoint (POST /npcf-smpolicycontrol/v1/sm-policies/{policyId}/delete)
+  - SM policy retrieval endpoint (GET /npcf-smpolicycontrol/v1/sm-policies/{policyId})
+  - Integration with PDU session create and release handlers
+  - Policy ID tracking in SM context
+  - Support for PCC rules, QoS data, charging data, and traffic control data
+  - Comprehensive data models for session rules, flow information, and policy triggers
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -226,7 +240,6 @@ The server will start on `http://localhost:8080` by default.
   - UDR discovery via NRF
   - Direct UDR data access endpoints
   - Integration with PDU session creation flow for subscriber validation
-- PCF integration for policy control
 - CHF integration for charging
 
 ### Session Management

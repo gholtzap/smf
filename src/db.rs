@@ -9,6 +9,7 @@ use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::services::slice_selection::SliceSelector;
 use crate::services::dnn_selector::DnnSelector;
+use crate::services::pcf::PcfClient;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub db: Database,
     pub notification_service: Arc<NotificationService>,
     pub pfcp_client: Option<PfcpClient>,
+    pub pcf_client: Option<Arc<PcfClient>>,
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
@@ -91,6 +93,14 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         (None, None)
     };
 
+    let pcf_client = if let Some(pcf_uri) = &config.pcf_uri {
+        tracing::info!("PCF client initialized with URI: {}", pcf_uri);
+        Some(Arc::new(PcfClient::new()))
+    } else {
+        tracing::warn!("PCF_URI not configured. SM policy control will be disabled.");
+        None
+    };
+
     let slice_selector = Arc::new(SliceSelector::new());
     tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
 
@@ -101,6 +111,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         db,
         notification_service,
         pfcp_client,
+        pcf_client,
         nrf_registration,
         nrf_discovery,
         slice_selector,

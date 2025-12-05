@@ -10,6 +10,7 @@ pub mod slice;
 pub mod dnn;
 pub mod amf;
 pub mod udm;
+pub mod pcf;
 
 use serde::{Deserialize, Serialize};
 

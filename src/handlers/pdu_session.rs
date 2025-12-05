@@ -93,6 +93,71 @@ pub async fn create_pdu_session(
         AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
     })?;
 
+    if let Some(ref pcf_client) = state.pcf_client {
+        let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
+
+        let notification_uri = format!(
+            "http://{}:{}/npcf-callback/v1/sm-policy-notify/{}",
+            std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
+            std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()),
+            sm_context.id
+        );
+
+        let context_data = crate::types::pcf::SmPolicyContextData {
+            supi: payload.supi.clone(),
+            pdu_session_id: payload.pdu_session_id,
+            dnn: payload.dnn.clone(),
+            slice_info: payload.s_nssai.clone(),
+            notification_uri,
+            ipv4_address: Some(ip_allocation.ip_address.clone()),
+            ipv6_address_prefix: None,
+            ip_domain: None,
+            subs_sess_ambr: None,
+            auth_prof_index: None,
+            subs_def_qos: None,
+            num_of_pack_filter: None,
+            online: Some(true),
+            offline: Some(false),
+            access_type: Some(crate::types::pcf::AccessType::Gpe3gppAccess),
+            rat_type: Some(crate::types::pcf::RatType::Nr),
+            servingNetwork: None,
+            user_location_info: None,
+            ue_time_zone: None,
+            pei: None,
+            ipv4_frame_route_list: None,
+            ipv6_frame_route_list: None,
+            supp_feat: None,
+        };
+
+        match pcf_client.create_sm_policy(&pcf_uri, context_data).await {
+            Ok((policy_id, policy_decision)) => {
+                sm_context.pcf_policy_id = Some(policy_id.clone());
+                tracing::info!(
+                    "SM policy created for SUPI: {}, Policy ID: {}",
+                    payload.supi,
+                    policy_id
+                );
+
+                if let Some(ref sess_rules) = policy_decision.sess_rules {
+                    tracing::debug!("Received {} session rules from PCF", sess_rules.len());
+                }
+
+                if let Some(ref pcc_rules) = policy_decision.pcc_rules {
+                    tracing::debug!("Received {} PCC rules from PCF", pcc_rules.len());
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to create SM policy for SUPI: {}: {}, continuing without PCF policy",
+                    payload.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("PCF client not available, skipping SM policy creation");
+    }
+
     if let Some(ref pfcp_client) = state.pfcp_client {
         let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
 
@@ -392,6 +457,29 @@ pub async fn release_pdu_session(
         }
     } else {
         tracing::debug!("PFCP client or session ID not available, skipping PFCP session deletion, State: InactivePending -> Deleted");
+    }
+
+    if let (Some(ref pcf_client), Some(ref policy_id)) = (&state.pcf_client, &sm_context.pcf_policy_id) {
+        let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
+
+        match pcf_client.delete_sm_policy(&pcf_uri, policy_id).await {
+            Ok(_) => {
+                tracing::info!(
+                    "SM policy deleted for SUPI: {}, Policy ID: {}",
+                    sm_context.supi,
+                    policy_id
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to delete SM policy for SUPI: {}: {}, proceeding with SM Context deletion",
+                    sm_context.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("PCF client or policy ID not available, skipping SM policy deletion");
     }
 
     state.notification_service.notify_pdu_session_event(
