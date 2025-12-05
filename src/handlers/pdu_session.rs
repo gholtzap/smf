@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HoState};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HoState};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -994,5 +994,125 @@ pub async fn handle_handover_request_ack(
     Ok(Json(serde_json::json!({
         "status": "success",
         "handoverState": "PREPARED"
+    })))
+}
+
+pub async fn handle_handover_notify(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<HandoverNotifyData>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    HandoverService::validate_ho_state_for_notify(&sm_context.handover_state)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "Handover notify received for SUPI: {}, PDU Session ID: {}, SM Context: {}, HO State: {:?}",
+        sm_context.supi,
+        payload.pdu_session_id,
+        sm_context_ref,
+        payload.ho_state
+    );
+
+    if payload.pdu_session_id != sm_context.pdu_session_id {
+        return Err(AppError::ValidationError(format!(
+            "PDU Session ID mismatch: expected {}, got {}",
+            sm_context.pdu_session_id,
+            payload.pdu_session_id
+        )));
+    }
+
+    let mut update_doc = doc! {
+        "handover_state": mongodb::bson::to_bson(&payload.ho_state).unwrap(),
+        "updated_at": mongodb::bson::DateTime::now()
+    };
+
+    if matches!(payload.ho_state, HoState::Completed) {
+        update_doc.insert(
+            "state",
+            mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
+        );
+
+        if let Some(ref an_tunnel_info) = payload.an_tunnel_info {
+            update_doc.insert(
+                "an_tunnel_info",
+                mongodb::bson::to_bson(an_tunnel_info).unwrap(),
+            );
+
+            if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+                tracing::info!(
+                    "Updating PFCP session for SUPI: {}, PFCP Session ID: {}",
+                    sm_context.supi,
+                    pfcp_session_id
+                );
+
+                if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
+                    if let Ok(an_ipv4) = an_ipv4_str.parse() {
+                        if let Err(e) = PfcpSessionManager::modify_session_for_handover(
+                            pfcp_client,
+                            pfcp_session_id,
+                            an_ipv4,
+                            &an_tunnel_info.gtp_teid,
+                        ).await {
+                            tracing::error!("Failed to modify PFCP session: {}", e);
+                        }
+                    } else {
+                        tracing::error!("Invalid AN IPv4 address: {}", an_ipv4_str);
+                    }
+                }
+            }
+        }
+
+        if let Some(ref ue_location) = payload.ue_location {
+            update_doc.insert(
+                "ue_location",
+                mongodb::bson::to_bson(ue_location).unwrap(),
+            );
+        }
+
+        tracing::info!(
+            "Handover completed for SUPI: {}, PDU Session ID: {}, UE Location: {:?}",
+            sm_context.supi,
+            sm_context.pdu_session_id,
+            payload.ue_location
+        );
+    } else if matches!(payload.ho_state, HoState::Cancelled) {
+        update_doc.insert(
+            "state",
+            mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
+        );
+
+        tracing::info!(
+            "Handover cancelled for SUPI: {}, PDU Session ID: {}, reverting to Active state",
+            sm_context.supi,
+            sm_context.pdu_session_id
+        );
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! { "$set": update_doc }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    tracing::info!(
+        "Handover state updated for SUPI: {}, PDU Session ID: {}, Final HO State: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.ho_state
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "handoverState": format!("{:?}", payload.ho_state).to_uppercase()
     })))
 }

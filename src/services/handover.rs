@@ -39,6 +39,17 @@ impl HandoverService {
         }
     }
 
+    pub fn validate_ho_state_for_notify(ho_state: &Option<HoState>) -> HandoverResult<()> {
+        match ho_state {
+            Some(HoState::Prepared) | Some(HoState::Preparing) => Ok(()),
+            Some(state) => Err(format!(
+                "Invalid handover state for notify: {:?}. Expected Prepared or Preparing state",
+                state
+            )),
+            None => Err("No handover in progress".to_string()),
+        }
+    }
+
     pub fn generate_cn_tunnel_info(upf_ipv4: &str, gtp_teid: &str) -> TunnelInfo {
         TunnelInfo {
             ipv4_addr: Some(upf_ipv4.to_string()),
