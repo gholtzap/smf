@@ -7,8 +7,8 @@ use axum::{
 use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HoState};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -863,4 +863,79 @@ pub async fn retrieve_pdu_session_by_supi(
     );
 
     Ok(Json(sm_context))
+}
+
+pub async fn handle_handover_required(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<HandoverRequiredData>,
+) -> Result<Json<HandoverRequiredResponse>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    HandoverService::validate_handover_state(&sm_context.state)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "Handover required notification received for SUPI: {}, PDU Session ID: {}, SM Context: {}, Target: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context_ref,
+        payload.target_id.ran_node_id.gnb_id
+    );
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let cn_tunnel_info = if let Some(pfcp_session_id) = sm_context.pfcp_session_id {
+        let upf_ipv4 = std::env::var("UPF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let gtp_teid = format!("{:08x}", pfcp_session_id as u32);
+
+        Some(HandoverService::generate_cn_tunnel_info(&upf_ipv4, &gtp_teid))
+    } else {
+        None
+    };
+
+    tracing::info!(
+        "Prepared handover resources for SUPI: {}, CN Tunnel Info: {:?}",
+        sm_context.supi,
+        cn_tunnel_info
+    );
+
+    let response = HandoverRequiredResponse {
+        n2_sm_info: Some(N2SmInfo {
+            content_id: "n2-ho-required-ack".to_string(),
+            n2_info_content: N2InfoContent {
+                ngap_ie_type: NgapIeType::PduResSetupReq,
+                ngap_data: "base64_encoded_ho_required_ack".to_string(),
+            },
+        }),
+        n2_sm_info_ext1: None,
+        ho_state: Some(HoState::Preparing),
+        cn_tunnel_info,
+        additional_cn_tunnel_info: None,
+    };
+
+    tracing::info!(
+        "Handover required response prepared for SUPI: {}, HO State: {:?}",
+        sm_context.supi,
+        response.ho_state
+    );
+
+    Ok(Json(response))
 }

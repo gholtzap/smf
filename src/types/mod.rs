@@ -12,6 +12,7 @@ pub mod amf;
 pub mod udm;
 pub mod pcf;
 pub mod ssc;
+pub mod handover;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,7 @@ pub use slice::*;
 pub use dnn::*;
 pub use amf::*;
 pub use ssc::*;
+pub use handover::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -44,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/release", post(handlers::pdu_session::release_pdu_session))
         .route("/nsmf-pdusession/v1/ue-contexts/:supi/sm-contexts", get(handlers::pdu_session::list_ue_pdu_sessions))
         .route("/nsmf-pdusession/v1/ue-contexts/:supi/sm-contexts/:pduSessionId", get(handlers::pdu_session::retrieve_pdu_session_by_supi))
+        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-required", post(handlers::pdu_session::handle_handover_required))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", post(handlers::packet_filter::add_packet_filters))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", get(handlers::packet_filter::get_packet_filters))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/packet-filters", delete(handlers::packet_filter::remove_packet_filters))
