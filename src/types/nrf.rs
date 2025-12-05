@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::{PlmnId, Snssai};
+use super::{PlmnId, Snssai, AmfInfo};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -59,6 +59,7 @@ pub struct NFProfile {
     pub locality: Option<String>,
     pub nf_services: Option<Vec<NFService>>,
     pub smf_info: Option<SmfInfo>,
+    pub amf_info: Option<AmfInfo>,
     pub heart_beat_timer: Option<u32>,
 }
 

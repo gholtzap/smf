@@ -101,6 +101,15 @@ The server will start on `http://localhost:8080` by default.
   - Subscription to NF status change notifications
   - Automatic cache updates on NF registration/deregistration/profile changes
   - NF status notification callback endpoint
+- AMF discovery and selection
+  - AMF discovery via NRF with query parameters (S-NSSAI, PLMN ID, TAI)
+  - AMF selection based on multiple criteria (S-NSSAI, TAI, GUAMI, priority, capacity, load)
+  - AMF info data models (GUAMI list, TAI list, TAI range list, backup AMF info)
+  - Scoring algorithm for optimal AMF selection
+  - Support for selecting single or multiple AMF instances
+  - Filtering by NF status (registered/suspended/undiscoverable)
+  - TAI and TAI range matching for location-based selection
+  - Service URI extraction from NFProfile and NFService
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -184,6 +193,11 @@ The server will start on `http://localhost:8080` by default.
 
 ### Network Function Integration - Other NFs
 - AMF communication (Namf callbacks) for N1/N2 messaging
+  - AMF client implementation (HTTP client for Namf service endpoints)
+  - N1 message container handling (NAS messages)
+  - N2 message container handling (NGAP messages)
+  - N1N2MessageTransfer endpoint implementation
+  - AMF callback endpoints for N1/N2 message delivery
 - UDM/UDR integration for subscriber data retrieval
 - PCF integration for policy control
 - CHF integration for charging

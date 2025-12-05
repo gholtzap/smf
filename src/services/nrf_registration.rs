@@ -124,6 +124,7 @@ impl NrfRegistrationService {
             locality: None,
             nf_services: Some(nf_services),
             smf_info: Some(smf_info),
+            amf_info: None,
             heart_beat_timer: Some(60),
         }
     }
