@@ -34,7 +34,7 @@ pub async fn create_pdu_session(
 
     let mut sm_context = SmContext::new(&payload);
 
-    let ue_ipv4_address = IpamService::allocate_ip(
+    let ip_allocation = IpamService::allocate_ip(
         &state.db,
         "default",
         &sm_context.id,
@@ -45,11 +45,13 @@ pub async fn create_pdu_session(
 
     sm_context.pdu_address = Some(PduAddress {
         pdu_session_type: PduSessionType::Ipv4,
-        ipv4_addr: Some(ue_ipv4_address.clone()),
+        ipv4_addr: Some(ip_allocation.ip_address.clone()),
         ipv6_addr: None,
+        dns_primary: ip_allocation.dns_primary.clone(),
+        dns_secondary: ip_allocation.dns_secondary.clone(),
     });
 
-    let ue_ipv4 = ue_ipv4_address.parse().map_err(|e| {
+    let ue_ipv4 = ip_allocation.ip_address.parse().map_err(|e| {
         AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
     })?;
 
@@ -102,8 +104,10 @@ pub async fn create_pdu_session(
         pdu_session_id: payload.pdu_session_id,
         s_nssai: payload.s_nssai.clone(),
         enable_pause_charging: Some(false),
-        ue_ipv4_address: Some(ue_ipv4_address.clone()),
+        ue_ipv4_address: Some(ip_allocation.ip_address.clone()),
         ue_ipv6_prefix: None,
+        dns_primary: ip_allocation.dns_primary.clone(),
+        dns_secondary: ip_allocation.dns_secondary.clone(),
         n1_sm_info_to_ue: None,
         eps_pdn_cnx_info: None,
         supported_features: None,

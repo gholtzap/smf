@@ -2,7 +2,7 @@ use mongodb::{bson::doc, Database};
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 use chrono::Utc;
-use crate::types::{IpAllocation, IpPool};
+use crate::types::{IpAllocation, IpAllocationResult, IpPool};
 
 pub struct IpamService;
 
@@ -39,7 +39,7 @@ impl IpamService {
         pool_name: &str,
         sm_context_ref: &str,
         supi: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<IpAllocationResult> {
         let pools_collection: mongodb::Collection<IpPool> = db.collection("ip_pools");
         let allocations_collection: mongodb::Collection<IpAllocation> = db.collection("ip_allocations");
 
@@ -84,7 +84,12 @@ impl IpamService {
                     supi
                 );
 
-                return Ok(ip_str);
+                return Ok(IpAllocationResult {
+                    ip_address: ip_str,
+                    gateway: pool.gateway.clone(),
+                    dns_primary: pool.dns_primary.clone(),
+                    dns_secondary: pool.dns_secondary.clone(),
+                });
             }
         }
 

@@ -66,6 +66,11 @@ The server will start on `http://localhost:8080` by default.
   - Default pool: 10.60.0.0/16 with DNS servers (8.8.8.8, 8.8.4.4)
   - IP allocation tracking in MongoDB
   - Automatic IP release on session termination
+- DNS configuration delivery to UEs
+  - Primary and secondary DNS server configuration in IP pools
+  - DNS server addresses included in PDU session creation response
+  - DNS configuration stored in PDU address structure
+  - Automatic DNS propagation from IPAM to UE
 
 ### UPF Health Monitoring
 - UPF node discovery and health monitoring
@@ -169,7 +174,6 @@ The server will start on `http://localhost:8080` by default.
 - Emergency services PDU session establishment
 
 ### IP & Network Configuration
-- DNS configuration delivery to UEs
 - MTU configuration
 - IPv4 and IPv6 dual-stack support
 

@@ -25,3 +25,11 @@ pub struct IpAllocation {
     pub supi: String,
     pub allocated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone)]
+pub struct IpAllocationResult {
+    pub ip_address: String,
+    pub gateway: String,
+    pub dns_primary: Option<String>,
+    pub dns_secondary: Option<String>,
+}

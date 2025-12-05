@@ -86,6 +86,8 @@ pub struct PduAddress {
     pub pdu_session_type: PduSessionType,
     pub ipv4_addr: Option<String>,
     pub ipv6_addr: Option<String>,
+    pub dns_primary: Option<String>,
+    pub dns_secondary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

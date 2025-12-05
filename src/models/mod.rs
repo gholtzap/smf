@@ -139,6 +139,8 @@ pub struct PduSessionCreatedData {
     pub enable_pause_charging: Option<bool>,
     pub ue_ipv4_address: Option<String>,
     pub ue_ipv6_prefix: Option<String>,
+    pub dns_primary: Option<String>,
+    pub dns_secondary: Option<String>,
     pub n1_sm_info_to_ue: Option<RefToBinaryData>,
     pub eps_pdn_cnx_info: Option<EpsPdnCnxInfo>,
     pub supported_features: Option<String>,
