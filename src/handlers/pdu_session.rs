@@ -20,6 +20,19 @@ pub async fn create_pdu_session(
 ) -> Result<Json<PduSessionCreatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
+    let slice_config = state
+        .slice_selector
+        .validate_snssai(&payload.s_nssai)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "S-NSSAI validated for SUPI: {}, Slice: {} (SST: {}, SD: {:?})",
+        payload.supi,
+        slice_config.slice_name,
+        payload.s_nssai.sst,
+        payload.s_nssai.sd
+    );
+
     let existing = collection
         .find_one(doc! { "supi": &payload.supi, "pdu_session_id": payload.pdu_session_id as i32 })
         .await
@@ -34,9 +47,15 @@ pub async fn create_pdu_session(
 
     let mut sm_context = SmContext::new(&payload);
 
+    if let Some(default_5qi) = slice_config.default_5qi {
+        sm_context.qos_flows = vec![QosFlow::new_with_5qi(1, default_5qi)];
+        tracing::debug!("Applied slice-specific default 5QI: {} for slice {}", default_5qi, slice_config.slice_name);
+    }
+
+    let ip_pool_name = slice_config.ip_pool_name.as_deref().unwrap_or("default");
     let ip_allocation = IpamService::allocate_ip(
         &state.db,
-        "default",
+        ip_pool_name,
         &sm_context.id,
         &payload.supi,
     )
@@ -112,8 +131,8 @@ pub async fn create_pdu_session(
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: Some(Ambr {
-            uplink: "100 Mbps".to_string(),
-            downlink: "100 Mbps".to_string(),
+            uplink: slice_config.default_session_ambr_uplink.clone(),
+            downlink: slice_config.default_session_ambr_downlink.clone(),
         }),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
@@ -130,10 +149,13 @@ pub async fn create_pdu_session(
     };
 
     tracing::info!(
-        "Created PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        "Created PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, Slice: {} (SST: {}, SD: {:?})",
         payload.supi,
         payload.pdu_session_id,
-        sm_context.id
+        sm_context.id,
+        slice_config.slice_name,
+        payload.s_nssai.sst,
+        payload.s_nssai.sd
     );
 
     state.notification_service.notify_pdu_session_event(
@@ -143,7 +165,7 @@ pub async fn create_pdu_session(
         payload.pdu_session_id,
         Some(payload.dnn.clone()),
         Some(payload.s_nssai.clone()),
-        Some(ue_ipv4_address.clone()),
+        Some(ip_allocation.ip_address.clone()),
         None,
         Some(sm_context.id.clone()),
         None,

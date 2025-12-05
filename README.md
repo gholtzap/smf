@@ -148,6 +148,15 @@ The server will start on `http://localhost:8080` by default.
   - CRUD operations for QoS rules (add/modify/delete/get)
   - QoS rule application endpoint for enforcement
   - Integration with PDU session management
+- S-NSSAI based slice selection
+  - Network slice configuration with SST and SD values
+  - Pre-configured slice profiles (eMBB, URLLC, MIoT, eMBB-Premium)
+  - S-NSSAI validation during PDU session creation
+  - Slice-specific QoS profiles (5QI assignment per slice)
+  - Slice-specific session AMBR (uplink/downlink bit rates)
+  - Slice-specific IP pool assignment
+  - Allowed slice list enforcement
+  - Automatic slice selection and configuration application
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -178,10 +187,8 @@ The server will start on `http://localhost:8080` by default.
 - IPv4 and IPv6 dual-stack support
 
 ### QoS & Traffic Management
-- Network Slice Selection
-  - S-NSSAI based slice selection
-  - DNN (Data Network Name) based routing
-  - Slice-specific QoS policies
+- DNN (Data Network Name) based routing
+- Slice-specific QoS policies
 
 ### Security
 - OAuth2 authentication for SBI

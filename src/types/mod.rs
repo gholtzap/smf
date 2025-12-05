@@ -6,6 +6,7 @@ pub mod nrf;
 pub mod qos;
 pub mod packet_filter;
 pub mod qos_rule;
+pub mod slice;
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,7 @@ pub use nrf::*;
 pub use qos::*;
 pub use packet_filter::*;
 pub use qos_rule::*;
+pub use slice::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

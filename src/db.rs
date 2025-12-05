@@ -7,6 +7,7 @@ use crate::services::pfcp::PfcpClient;
 use crate::services::nrf::NrfClient;
 use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
+use crate::services::slice_selection::SliceSelector;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub pfcp_client: Option<PfcpClient>,
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
+    pub slice_selector: Arc<SliceSelector>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -87,12 +89,16 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         (None, None)
     };
 
+    let slice_selector = Arc::new(SliceSelector::new());
+    tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
+
     Ok(AppState {
         db,
         notification_service,
         pfcp_client,
         nrf_registration,
         nrf_discovery,
+        slice_selector,
     })
 }
 

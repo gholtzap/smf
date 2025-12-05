@@ -9,3 +9,4 @@ pub mod nrf_discovery;
 pub mod qos_flow;
 pub mod packet_filter;
 pub mod qos_rule;
+pub mod slice_selection;
