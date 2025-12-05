@@ -201,7 +201,7 @@ impl SmContext {
             dnn: create_data.dnn.clone(),
             s_nssai: create_data.s_nssai.clone(),
             pdu_session_type: PduSessionType::Ipv4,
-            state: SmContextState::Activated,
+            state: SmContextState::ActivePending,
             pdu_address: None,
             pfcp_session_id: None,
             created_at: Utc::now(),

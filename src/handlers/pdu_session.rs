@@ -53,22 +53,24 @@ pub async fn create_pdu_session(
         ).await {
             Ok(_) => {
                 sm_context.pfcp_session_id = Some(seid);
+                sm_context.state = crate::types::SmContextState::Active;
                 tracing::info!(
-                    "PFCP Session established for SUPI: {}, SEID: {}",
+                    "PFCP Session established for SUPI: {}, SEID: {}, State: Active",
                     payload.supi,
                     seid
                 );
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to establish PFCP session for SUPI: {}: {}",
+                    "Failed to establish PFCP session for SUPI: {}: {}, State remains: ActivePending",
                     payload.supi,
                     e
                 );
             }
         }
     } else {
-        tracing::debug!("PFCP client not available, skipping PFCP session establishment");
+        sm_context.state = crate::types::SmContextState::Active;
+        tracing::debug!("PFCP client not available, skipping PFCP session establishment, State: Active");
     }
 
     collection
@@ -165,25 +167,41 @@ pub async fn update_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
+    let mut new_state = crate::types::SmContextState::Active;
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
         match PfcpSessionManager::modify_session(pfcp_client, seid, None).await {
             Ok(_) => {
                 tracing::info!(
-                    "PFCP Session modified for SUPI: {}, SEID: {}",
+                    "PFCP Session modified for SUPI: {}, SEID: {}, State: ModificationPending -> Active",
                     sm_context.supi,
                     seid
                 );
             }
             Err(e) => {
+                new_state = crate::types::SmContextState::ModificationPending;
                 tracing::warn!(
-                    "Failed to modify PFCP session for SUPI: {}: {}",
+                    "Failed to modify PFCP session for SUPI: {}: {}, State remains: ModificationPending",
                     sm_context.supi,
                     e
                 );
             }
         }
     } else {
-        tracing::debug!("PFCP client or session ID not available, skipping PFCP session modification");
+        tracing::debug!("PFCP client or session ID not available, skipping PFCP session modification, State: ModificationPending -> Active");
     }
 
     let updated_ambr = payload.session_ambr.clone().or(Some(Ambr {
@@ -193,6 +211,7 @@ pub async fn update_pdu_session(
 
     let update_doc = doc! {
         "$set": {
+            "state": mongodb::bson::to_bson(&new_state).unwrap(),
             "updated_at": mongodb::bson::DateTime::now()
         }
     };
@@ -242,25 +261,38 @@ pub async fn release_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::InactivePending).unwrap(),
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
         match PfcpSessionManager::delete_session(pfcp_client, seid).await {
             Ok(_) => {
                 tracing::info!(
-                    "PFCP Session deleted for SUPI: {}, SEID: {}",
+                    "PFCP Session deleted for SUPI: {}, SEID: {}, State: InactivePending -> Deleted",
                     sm_context.supi,
                     seid
                 );
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to delete PFCP session for SUPI: {}: {}",
+                    "Failed to delete PFCP session for SUPI: {}: {}, proceeding with SM Context deletion",
                     sm_context.supi,
                     e
                 );
             }
         }
     } else {
-        tracing::debug!("PFCP client or session ID not available, skipping PFCP session deletion");
+        tracing::debug!("PFCP client or session ID not available, skipping PFCP session deletion, State: InactivePending -> Deleted");
     }
 
     state.notification_service.notify_pdu_session_event(

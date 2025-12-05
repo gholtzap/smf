@@ -97,6 +97,12 @@ The server will start on `http://localhost:8080` by default.
   - Automatic cache updates on NF registration/deregistration/profile changes
   - NF status notification callback endpoint
 
+### Session Management
+- Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
+  - ActivePending -> Active transition during PDU session creation after PFCP session establishment
+  - Active -> ModificationPending -> Active transitions during PDU session updates
+  - Active -> InactivePending transition during PDU session release
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -117,7 +123,6 @@ The server will start on `http://localhost:8080` by default.
 - CHF integration for charging
 
 ### Session Management
-- Session state management and persistence
 - Multi-PDU session per UE support
 - Session continuity and mobility (handover procedures)
 - Service and Session Continuity (SSC) modes (1/2/3)
