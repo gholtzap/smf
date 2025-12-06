@@ -413,6 +413,16 @@ The server will start on `http://localhost:8080` by default.
   - Base64 decoding of N2 SM info ngap_data field
   - Error handling for invalid base64 encoded NGAP data
   - Decoded NGAP data size logging for debugging
+  - NGAP message data models and types:
+    - Basic NGAP Information Element (IE) structures (ProtocolIE with criticality and presence)
+    - GTP tunnel information types (GtpTunnel with IP address and TEID extraction)
+    - QoS Flow Level QoS Parameters types (5QI descriptors, ARP, GBR parameters)
+    - User Location Information types (NR CGI, TAI, PLMN identity)
+    - NGAP cause types (RadioNetwork, Transport, NAS, Protocol, Misc causes)
+    - PDU Session Resource Setup Response Transfer types
+    - Path Switch Request Transfer types
+    - QoS flow setup and acceptance item types
+    - Security result and indication types
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -431,11 +441,15 @@ The server will start on `http://localhost:8080` by default.
 - Session continuity and mobility (handover procedures):
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
-      - NGAP ASN.1 message parsing infrastructure
-      - AN tunnel information extraction from NGAP PDU Session Resource Setup Response
-      - AN tunnel information extraction from NGAP Path Switch Request
-      - QoS flow information extraction from NGAP messages
-      - UE location information extraction from NGAP messages
+      - NGAP message parsing infrastructure (broken down below)
+        - NGAP container parsing and decoding utilities
+        - PDU Session Resource Setup Response IE extraction
+        - Path Switch Request IE extraction
+        - QoS Flow Level QoS Parameters IE extraction
+        - User Location Information IE extraction
+        - GTP Tunnel IE extraction
+        - Integration of NGAP parsers with handover notify handler
+        - Integration of NGAP parsers with path switch handler
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
