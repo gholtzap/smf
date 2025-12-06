@@ -424,6 +424,20 @@ The server will start on `http://localhost:8080` by default.
     - QoS flow setup and acceptance item types
     - Security result and indication types
 
+### NGAP Message Parsing Infrastructure
+- ASN.1 codec dependency and configuration
+  - rasn library integration for ASN.1 PER encoding/decoding
+  - NGAP parser module initialization
+  - Information Element (IE) extraction framework
+  - NGAP PDU structure definitions
+  - IE criticality and presence handling
+  - IE ID constants for common NGAP messages
+  - PDU Session Resource Setup/Modify/Release IEs
+  - Path Switch Request/Acknowledge IEs
+  - User Location Information IE
+  - GTP Tunnel IE
+  - QoS Flow Setup Request/Response IEs
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -442,7 +456,11 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
-        - NGAP container parsing and decoding utilities
+        - NGAP container parsing and decoding utilities (broken down below)
+          - ASN.1 PER (Packed Encoding Rules) basic decoding utilities
+          - NGAP PDU structure parser
+          - NGAP IE (Information Element) header parsing
+          - NGAP IE value extraction framework
         - PDU Session Resource Setup Response IE extraction
         - Path Switch Request IE extraction
         - QoS Flow Level QoS Parameters IE extraction

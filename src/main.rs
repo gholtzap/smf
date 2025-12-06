@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod handlers;
 mod models;
+mod parsers;
 mod services;
 mod types;
 mod utils;
