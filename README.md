@@ -219,6 +219,14 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode delivery in PDU session creation response
   - Integration with UDM subscriber data for allowed SSC modes
   - Conversion support between UDM and SMF SSC mode representations
+- SSC mode 1 behavior implementation
+  - IP address preservation during mobility and handover
+  - IP preservation validation during PDU session creation
+  - IP preservation enforcement during path switch requests
+  - IP preservation verification during handover completion
+  - Automatic IP release only on PDU session termination (not during mobility)
+  - SSC mode 1 logging and monitoring throughout session lifecycle
+  - Integration with handover procedures (Xn-based and N2-based)
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -426,7 +434,6 @@ The server will start on `http://localhost:8080` by default.
   - QoS flow mapping and continuity during handover
   - Session AMBR enforcement during handover
 - Service and Session Continuity (SSC) mode behavior:
-  - SSC mode 1: IP address preservation during mobility
   - SSC mode 2: Session release and re-establishment logic
   - SSC mode 3: Make-before-break session establishment logic
 

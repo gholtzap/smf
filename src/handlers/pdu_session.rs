@@ -13,6 +13,7 @@ use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
 use crate::services::handover::HandoverService;
+use crate::services::ssc_behavior::SscBehaviorService;
 use crate::services::emergency::EmergencyService;
 use std::sync::Arc;
 
@@ -220,6 +221,20 @@ pub async fn create_pdu_session(
         dns_primary: ip_allocation.dns_primary.clone(),
         dns_secondary: ip_allocation.dns_secondary.clone(),
     });
+
+    SscBehaviorService::validate_ip_allocation_for_mode(
+        &sm_context.ssc_mode,
+        sm_context.pdu_address.as_ref(),
+    ).map_err(AppError::ValidationError)?;
+
+    if sm_context.ssc_mode == SscMode::Mode1 {
+        tracing::info!(
+            "SSC Mode 1 PDU session created: IP address will be preserved during mobility for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+            payload.supi,
+            ipv4_addr,
+            ipv6_addr
+        );
+    }
 
     sm_context.mtu = ip_allocation.mtu.or(dnn_config.mtu);
 
@@ -544,11 +559,19 @@ async fn handle_path_switch(
     HandoverService::validate_handover_state(&sm_context.state)
         .map_err(AppError::ValidationError)?;
 
+    if sm_context.ssc_mode == SscMode::Mode1 {
+        tracing::info!(
+            "SSC Mode 1 path switch: IP address will be preserved for SUPI: {}",
+            sm_context.supi
+        );
+    }
+
     tracing::info!(
-        "Path switch request received for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        "Path switch request received for SUPI: {}, PDU Session ID: {}, SM Context: {}, SSC Mode: {}",
         sm_context.supi,
         sm_context.pdu_session_id,
-        sm_context_ref
+        sm_context_ref,
+        sm_context.ssc_mode.as_str()
     );
 
     let an_tunnel_info = if let Some(ref n2_sm_info) = payload.n2_sm_info {
@@ -948,6 +971,15 @@ pub async fn release_pdu_session(
         Some(crate::types::Cause::RegularDeactivation),
     ).await;
 
+    if sm_context.ssc_mode == SscMode::Mode1 {
+        tracing::info!(
+            "SSC Mode 1: Releasing IP address on PDU session termination for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+            sm_context.supi,
+            sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.as_ref()),
+            sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.as_ref())
+        );
+    }
+
     IpamService::release_ip(&state.db, &sm_context_ref)
         .await
         .map_err(|e| {
@@ -1065,11 +1097,23 @@ pub async fn handle_handover_required(
     HandoverService::validate_handover_state(&sm_context.state)
         .map_err(AppError::ValidationError)?;
 
+    if sm_context.ssc_mode == SscMode::Mode1 {
+        if let Some(ref pdu_addr) = sm_context.pdu_address {
+            tracing::info!(
+                "SSC Mode 1: IP address will be preserved during handover for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+                sm_context.supi,
+                pdu_addr.ipv4_addr,
+                pdu_addr.ipv6_addr
+            );
+        }
+    }
+
     tracing::info!(
-        "Handover required notification received for SUPI: {}, PDU Session ID: {}, SM Context: {}, Target: {:?}",
+        "Handover required notification received for SUPI: {}, PDU Session ID: {}, SM Context: {}, SSC Mode: {}, Target: {:?}",
         sm_context.supi,
         sm_context.pdu_session_id,
         sm_context_ref,
+        sm_context.ssc_mode.as_str(),
         payload.target_id.ran_node_id.gnb_id
     );
 
@@ -1219,6 +1263,23 @@ pub async fn handle_handover_notify(
     };
 
     if matches!(payload.ho_state, HoState::Completed) {
+        if sm_context.ssc_mode == SscMode::Mode1 {
+            if let Some(ref existing_pdu_addr) = sm_context.pdu_address {
+                SscBehaviorService::validate_handover_ip_behavior(
+                    &sm_context.ssc_mode,
+                    existing_pdu_addr,
+                    None,
+                ).map_err(AppError::ValidationError)?;
+
+                tracing::info!(
+                    "SSC Mode 1 handover completed: IP address preserved for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+                    sm_context.supi,
+                    existing_pdu_addr.ipv4_addr,
+                    existing_pdu_addr.ipv6_addr
+                );
+            }
+        }
+
         update_doc.insert(
             "state",
             mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
