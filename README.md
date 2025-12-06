@@ -449,6 +449,16 @@ The server will start on `http://localhost:8080` by default.
   - Byte alignment operations for PER constraints
   - Peek operations for lookahead parsing
   - Remaining bytes tracking for parser state
+- NGAP container parsing and decoding utilities
+  - NGAP PDU structure parser with PDU type detection (InitiatingMessage, SuccessfulOutcome, UnsuccessfulOutcome)
+  - Procedure code and criticality extraction from NGAP PDU header
+  - NGAP IE (Information Element) header parsing with ID, criticality, and length extraction
+  - NGAP IE value extraction framework with type-specific decoding methods
+  - IE collection parsing and management from NGAP PDU value field
+  - IE lookup by ID with optional result handling
+  - IE value decoding utilities (integer, octet string, bit string, enumerated types)
+  - PDU type enumeration and conversion
+  - Extension flag handling for future NGAP protocol versions
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -468,10 +478,6 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
-        - NGAP container parsing and decoding utilities (broken down below)
-          - NGAP PDU structure parser
-          - NGAP IE (Information Element) header parsing
-          - NGAP IE value extraction framework
         - PDU Session Resource Setup Response IE extraction
         - Path Switch Request IE extraction
         - QoS Flow Level QoS Parameters IE extraction

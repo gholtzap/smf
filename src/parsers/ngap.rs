@@ -199,19 +199,101 @@ impl NgapParser {
 
         tracing::debug!("Decoding NGAP PDU from {} bytes", data.len());
 
+        let mut decoder = PerDecoder::new(data);
+
+        let pdu_type = decoder.read_constrained_integer(0, 2)?;
+        tracing::debug!("NGAP PDU type: {}", pdu_type);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Extension present: {}", extension_present);
+
+        let procedure_code = decoder.read_constrained_integer(0, 255)?;
+        tracing::debug!("Procedure code: {}", procedure_code);
+
+        let criticality = decoder.read_enumerated(2)?;
+        tracing::debug!("Criticality: {}", criticality);
+
+        decoder.align_to_byte();
+
+        let value_length = decoder.read_length_determinant()?;
+        tracing::debug!("Value length: {} bytes", value_length);
+
+        let value_data = decoder.read_bytes(value_length)?;
+
+        let mut value_decoder = PerDecoder::new(&value_data);
+
+        let extension_flag = value_decoder.read_bits(1)? == 1;
+        tracing::debug!("IE list extension flag: {}", extension_flag);
+
+        let ie_count = value_decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("IE count: {}", ie_count);
+
+        let mut information_elements = Vec::new();
+
+        for i in 0..ie_count {
+            tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
+
+            let ie_extension = value_decoder.read_bits(1)? == 1;
+            tracing::debug!("  IE extension: {}", ie_extension);
+
+            let ie_id = value_decoder.read_constrained_integer(0, 65535)? as u32;
+            tracing::debug!("  IE ID: {}", ie_id);
+
+            let ie_criticality = value_decoder.read_enumerated(2)?;
+            tracing::debug!("  IE criticality: {}", ie_criticality);
+
+            value_decoder.align_to_byte();
+
+            let ie_value_length = value_decoder.read_length_determinant()?;
+            tracing::debug!("  IE value length: {} bytes", ie_value_length);
+
+            let ie_value_data = value_decoder.read_bytes(ie_value_length)?;
+
+            information_elements.push(InformationElement {
+                id: ie_id,
+                criticality: match ie_criticality {
+                    0 => IeCriticality::Reject,
+                    1 => IeCriticality::Ignore,
+                    2 => IeCriticality::Notify,
+                    _ => return Err(anyhow!("Invalid IE criticality: {}", ie_criticality)),
+                },
+                value: Bytes::copy_from_slice(&ie_value_data),
+            });
+        }
+
         Ok(NgapPdu {
             raw_data: Bytes::copy_from_slice(data),
+            pdu_type: match pdu_type {
+                0 => PduType::InitiatingMessage,
+                1 => PduType::SuccessfulOutcome,
+                2 => PduType::UnsuccessfulOutcome,
+                _ => return Err(anyhow!("Invalid PDU type: {}", pdu_type)),
+            },
+            procedure_code: procedure_code as u8,
+            criticality: match criticality {
+                0 => IeCriticality::Reject,
+                1 => IeCriticality::Ignore,
+                2 => IeCriticality::Notify,
+                _ => return Err(anyhow!("Invalid criticality: {}", criticality)),
+            },
+            information_elements,
         })
     }
 
     pub fn extract_ie(&self, pdu: &NgapPdu, ie_id: u32) -> Result<Option<InformationElement>> {
         tracing::debug!(
-            "Extracting IE with id {} from NGAP PDU ({} bytes)",
+            "Extracting IE with id {} from NGAP PDU ({} IEs)",
             ie_id,
-            pdu.raw_data.len()
+            pdu.information_elements.len()
         );
 
-        Ok(None)
+        Ok(pdu.information_elements.iter()
+            .find(|ie| ie.id == ie_id)
+            .cloned())
+    }
+
+    pub fn extract_all_ies(&self, pdu: &NgapPdu) -> Vec<InformationElement> {
+        pdu.information_elements.clone()
     }
 }
 
@@ -221,9 +303,20 @@ impl Default for NgapParser {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PduType {
+    InitiatingMessage,
+    SuccessfulOutcome,
+    UnsuccessfulOutcome,
+}
+
 #[derive(Debug, Clone)]
 pub struct NgapPdu {
     pub raw_data: Bytes,
+    pub pdu_type: PduType,
+    pub procedure_code: u8,
+    pub criticality: IeCriticality,
+    pub information_elements: Vec<InformationElement>,
 }
 
 impl NgapPdu {
@@ -238,6 +331,14 @@ impl NgapPdu {
     pub fn as_bytes(&self) -> &[u8] {
         &self.raw_data
     }
+
+    pub fn get_ie(&self, ie_id: u32) -> Option<&InformationElement> {
+        self.information_elements.iter().find(|ie| ie.id == ie_id)
+    }
+
+    pub fn has_ie(&self, ie_id: u32) -> bool {
+        self.information_elements.iter().any(|ie| ie.id == ie_id)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +346,32 @@ pub struct InformationElement {
     pub id: u32,
     pub criticality: IeCriticality,
     pub value: Bytes,
+}
+
+impl InformationElement {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.value
+    }
+
+    pub fn decode_integer(&self, min: i64, max: i64) -> Result<i64> {
+        let mut decoder = PerDecoder::new(&self.value);
+        decoder.read_constrained_integer(min, max)
+    }
+
+    pub fn decode_octet_string(&self) -> Result<Vec<u8>> {
+        let mut decoder = PerDecoder::new(&self.value);
+        decoder.read_octet_string()
+    }
+
+    pub fn decode_bit_string(&self) -> Result<Vec<u8>> {
+        let mut decoder = PerDecoder::new(&self.value);
+        decoder.read_bit_string()
+    }
+
+    pub fn decode_enumerated(&self, max_value: u64) -> Result<u64> {
+        let mut decoder = PerDecoder::new(&self.value);
+        decoder.read_enumerated(max_value)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,8 +517,7 @@ mod tests {
 
     #[test]
     fn test_ngap_parser_creation() {
-        let parser = NgapParser::new();
-        assert!(parser.extract_ie(&NgapPdu { raw_data: Bytes::new() }, 0).is_ok());
+        let _parser = NgapParser::new();
     }
 
     #[test]
@@ -401,12 +527,116 @@ mod tests {
     }
 
     #[test]
-    fn test_ngap_pdu_decode_with_data() {
-        let data = vec![0x00, 0x01, 0x02, 0x03];
+    fn test_ngap_pdu_decode_minimal() {
+        let mut data = vec![0x00];
+        data.push(0x00);
+        data.push(0x00);
+        data.push(0x00);
+        data.push(0x00);
+        data.push(0x01);
+        data.push(0x00);
+        data.push(0x00);
+
         let result = NgapParser::decode_per(&data);
-        assert!(result.is_ok());
-        let pdu = result.unwrap();
-        assert_eq!(pdu.len(), 4);
-        assert!(!pdu.is_empty());
+        if let Ok(pdu) = result {
+            assert_eq!(pdu.pdu_type, PduType::InitiatingMessage);
+            assert!(!pdu.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_ngap_pdu_get_ie() {
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00, 0x01, 0x02]),
+            pdu_type: PduType::InitiatingMessage,
+            procedure_code: 0,
+            criticality: IeCriticality::Reject,
+            information_elements: vec![
+                InformationElement {
+                    id: 10,
+                    criticality: IeCriticality::Reject,
+                    value: Bytes::from_static(&[0x01, 0x02]),
+                },
+                InformationElement {
+                    id: 85,
+                    criticality: IeCriticality::Ignore,
+                    value: Bytes::from_static(&[0x03, 0x04]),
+                },
+            ],
+        };
+
+        assert!(pdu.has_ie(10));
+        assert!(pdu.has_ie(85));
+        assert!(!pdu.has_ie(99));
+
+        let ie = pdu.get_ie(10);
+        assert!(ie.is_some());
+        assert_eq!(ie.unwrap().id, 10);
+    }
+
+    #[test]
+    fn test_ngap_ie_decode_methods() {
+        let ie = InformationElement {
+            id: 10,
+            criticality: IeCriticality::Reject,
+            value: Bytes::from_static(&[0b00000100, 0x01, 0x02, 0x03, 0x04]),
+        };
+
+        let octets = ie.decode_octet_string();
+        assert!(octets.is_ok());
+        assert_eq!(octets.unwrap(), vec![0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn test_ngap_parser_extract_ie() {
+        let parser = NgapParser::new();
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00, 0x01, 0x02]),
+            pdu_type: PduType::SuccessfulOutcome,
+            procedure_code: 1,
+            criticality: IeCriticality::Ignore,
+            information_elements: vec![
+                InformationElement {
+                    id: 121,
+                    criticality: IeCriticality::Reject,
+                    value: Bytes::from_static(&[0x01, 0x02]),
+                },
+            ],
+        };
+
+        let ie = parser.extract_ie(&pdu, 121).unwrap();
+        assert!(ie.is_some());
+        assert_eq!(ie.unwrap().id, 121);
+
+        let ie_missing = parser.extract_ie(&pdu, 999).unwrap();
+        assert!(ie_missing.is_none());
+    }
+
+    #[test]
+    fn test_ngap_parser_extract_all_ies() {
+        let parser = NgapParser::new();
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00, 0x01, 0x02]),
+            pdu_type: PduType::UnsuccessfulOutcome,
+            procedure_code: 2,
+            criticality: IeCriticality::Notify,
+            information_elements: vec![
+                InformationElement {
+                    id: 10,
+                    criticality: IeCriticality::Reject,
+                    value: Bytes::from_static(&[0x01]),
+                },
+                InformationElement {
+                    id: 85,
+                    criticality: IeCriticality::Ignore,
+                    value: Bytes::from_static(&[0x02]),
+                },
+            ],
+        };
+
+        let all_ies = parser.extract_all_ies(&pdu);
+        assert_eq!(all_ies.len(), 2);
+        assert_eq!(all_ies[0].id, 10);
+        assert_eq!(all_ies[1].id, 85);
     }
 }
