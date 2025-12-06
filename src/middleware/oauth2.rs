@@ -27,6 +27,7 @@ impl Default for OAuth2Config {
 }
 
 pub async fn oauth2_validation_middleware(
+    config: axum::extract::State<OAuth2Config>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -42,14 +43,14 @@ pub async fn oauth2_validation_middleware(
 
     let token = &auth_header[7..];
 
-    let validated_token = validate_token(token)?;
+    let validated_token = validate_token(token, &config)?;
 
     req.extensions_mut().insert(validated_token);
 
     Ok(next.run(req).await)
 }
 
-fn validate_token(token: &str) -> Result<ValidatedToken, StatusCode> {
+fn validate_token(token: &str, config: &OAuth2Config) -> Result<ValidatedToken, StatusCode> {
     let parts: Vec<&str> = token.split('.').collect();
 
     if parts.len() != 3 {
@@ -67,6 +68,26 @@ fn validate_token(token: &str) -> Result<ValidatedToken, StatusCode> {
 
     if claims.is_expired() {
         return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    if !config.issuer.is_empty() && claims.iss != config.issuer {
+        tracing::warn!("Token issuer mismatch: expected {}, got {}", config.issuer, claims.iss);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !config.audience.is_empty() {
+        let has_valid_audience = claims.aud.iter().any(|aud| config.audience.contains(aud));
+        if !has_valid_audience {
+            tracing::warn!("Token audience mismatch: expected one of {:?}, got {:?}", config.audience, claims.aud);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    if let Some(ref required_scope) = config.required_scope {
+        if !claims.has_scope(required_scope) {
+            tracing::warn!("Token missing required scope: {}", required_scope);
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
 
     Ok(ValidatedToken {

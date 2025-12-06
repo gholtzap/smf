@@ -65,7 +65,8 @@ async fn main() -> anyhow::Result<()> {
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");
-        protected_routes = protected_routes.route_layer(axum_middleware::from_fn(middleware::oauth2_validation_middleware));
+        let oauth2_config = config.oauth2.clone();
+        protected_routes = protected_routes.route_layer(axum_middleware::from_fn_with_state(oauth2_config, middleware::oauth2_validation_middleware));
     }
 
     let public_routes = Router::new()

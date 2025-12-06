@@ -357,6 +357,13 @@ The server will start on `http://localhost:8080` by default.
     - Environment-based TLS configuration (TLS_ENABLED, TLS_CERT_PATH, TLS_KEY_PATH)
     - Conditional TLS activation (HTTP/HTTPS mode selection)
     - Ring crypto provider for cross-platform compatibility
+- Authorization and access control:
+  - Scope validation for OAuth2 tokens
+    - Issuer validation against configured OAuth2 issuer
+    - Audience validation against configured allowed audiences
+    - Required scope validation for protected endpoints
+    - Proper error responses (401 Unauthorized, 403 Forbidden)
+    - Logging of validation failures for security monitoring
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -434,7 +441,6 @@ The server will start on `http://localhost:8080` by default.
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control
-  - Scope validation for OAuth2 tokens
 
 ### Advanced Features
 - Local breakout and MEC support
