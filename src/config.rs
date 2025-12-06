@@ -11,6 +11,7 @@ pub struct Config {
     pub nrf_uri: Option<String>,
     pub pcf_uri: Option<String>,
     pub udm_uri: Option<String>,
+    pub chf_uri: Option<String>,
     pub nf_instance_id: String,
     pub smf_host: String,
 }
@@ -44,6 +45,8 @@ impl Config {
 
         let udm_uri = env::var("UDM_URI").ok();
 
+        let chf_uri = env::var("CHF_URI").ok();
+
         let nf_instance_id = env::var("NF_INSTANCE_ID")
             .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
@@ -60,6 +63,7 @@ impl Config {
             nrf_uri,
             pcf_uri,
             udm_uri,
+            chf_uri,
             nf_instance_id,
             smf_host,
         })

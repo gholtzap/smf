@@ -14,6 +14,7 @@ pub mod pcf;
 pub mod ssc;
 pub mod handover;
 pub mod udr;
+pub mod chf;
 
 use serde::{Deserialize, Serialize};
 

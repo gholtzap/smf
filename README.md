@@ -23,6 +23,7 @@ PFCP_BIND_PORT=8805
 NRF_URI=http://localhost:8000
 PCF_URI=http://localhost:8001
 UDM_URI=http://localhost:8002
+CHF_URI=http://localhost:8003
 NF_INSTANCE_ID=
 SMF_HOST=127.0.0.1
 ```
@@ -181,6 +182,17 @@ The server will start on `http://localhost:8080` by default.
   - Policy ID tracking in SM context
   - Support for PCC rules, QoS data, charging data, and traffic control data
   - Comprehensive data models for session rules, flow information, and policy triggers
+- CHF client implementation (HTTP client for Nchf service endpoints)
+  - CHF client data models for Nchf_ConvergedCharging (Converged Charging)
+  - Charging data models (ChargingDataRequest, ChargingDataResponse, PduSessionChargingInformation)
+  - CHF client HTTP implementation with error handling
+  - Charging session creation endpoint (POST /nchf-convergedcharging/v3/chargingdata)
+  - Charging session update endpoint (POST /nchf-convergedcharging/v3/chargingdata/{ChargingDataRef}/update)
+  - Charging session release endpoint (POST /nchf-convergedcharging/v3/chargingdata/{ChargingDataRef}/release)
+  - Integration with PDU session create and release handlers
+  - Charging reference tracking in SM context
+  - Support for usage reporting, quota management, and trigger-based charging
+  - Comprehensive data models for rating groups, QoS information, and location data
 
 ### SSC Mode Management
 - SSC mode selection and validation framework
@@ -324,7 +336,6 @@ The server will start on `http://localhost:8080` by default.
   - N2 message container handling (NGAP messages)
   - N1N2MessageTransfer endpoint implementation
   - AMF callback endpoints for N1/N2 message delivery
-- CHF integration for charging
 
 ### Session Management
 - Session continuity and mobility (handover procedures):

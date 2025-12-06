@@ -263,6 +263,107 @@ pub async fn create_pdu_session(
         tracing::debug!("PCF client not available, skipping SM policy creation");
     }
 
+    if let Some(ref chf_client) = state.chf_client {
+        let chf_uri = std::env::var("CHF_URI").unwrap_or_default();
+
+        let nf_identification = crate::types::chf::NfIdentification {
+            nf_name: format!("SMF-{}", std::env::var("NF_INSTANCE_ID").unwrap_or_else(|_| "unknown".to_string())),
+            nf_ip_v4_address: Some(std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())),
+            nf_ip_v6_address: None,
+            nf_plmn_id: None,
+            nf_fqdn: None,
+        };
+
+        let pdu_session_info = crate::types::chf::PduSessionInformation {
+            network_slice_instance_id: None,
+            pdu_session_id: payload.pdu_session_id,
+            pdu_type: match &sm_context.pdu_session_type {
+                crate::types::PduSessionType::Ipv4 => crate::types::chf::PduSessionType::Ipv4,
+                crate::types::PduSessionType::Ipv6 => crate::types::chf::PduSessionType::Ipv6,
+                crate::types::PduSessionType::Ipv4v6 => crate::types::chf::PduSessionType::Ipv4v6,
+                crate::types::PduSessionType::Ethernet => crate::types::chf::PduSessionType::Ethernet,
+                crate::types::PduSessionType::Unstructured => crate::types::chf::PduSessionType::Unstructured,
+            },
+            ssc_mode: match sm_context.ssc_mode {
+                SscMode::Mode1 => crate::types::chf::SscMode::SscMode1,
+                SscMode::Mode2 => crate::types::chf::SscMode::SscMode2,
+                SscMode::Mode3 => crate::types::chf::SscMode::SscMode3,
+            },
+            hplmn_pdu_session_id: None,
+            authorized_qos_information: None,
+            authorized_session_ambr: None,
+            pdu_address: Some(crate::types::chf::PduAddress {
+                pdu_ipv4_address: ipv4_addr.clone(),
+                pdu_ipv6_address_with_prefix: ipv6_addr.clone(),
+                ipv4_dynamic_address_flag: Some(true),
+                ipv6_dynamic_prefix_flag: Some(true),
+            }),
+            serving_cn_plmn_id: None,
+            dnn_id: Some(payload.dnn.clone()),
+            dnn_selection_mode: Some(crate::types::chf::DnnSelectionMode::Verified),
+            charging_characteristics: None,
+            charging_characteristics_selection_mode: None,
+            start_time: Some(chrono::Utc::now().to_rfc3339()),
+            stop_time: None,
+            ps_data_off_status: None,
+            session_stop_indicator: None,
+            pdu_session_pair_id: None,
+            dnai_list: None,
+            redundant_pdu_session_information: None,
+        };
+
+        let pdu_session_charging_info = crate::types::chf::PduSessionChargingInformation {
+            charging_id: None,
+            home_provided_charging_id: None,
+            user_information: None,
+            user_location_info: None,
+            user_location_time: None,
+            pres_reporting_area_info: None,
+            ps_data_off_status: None,
+            uetimezone: None,
+            rat_type: Some(crate::types::chf::RatType::Nr),
+            serving_node_id: None,
+            serving_network_function_id: None,
+            pdu_session_information: pdu_session_info,
+            unit_count_inactivity_timer: None,
+        };
+
+        let charging_request = crate::types::chf::ChargingDataRequest {
+            subscriber_identifier: payload.supi.clone(),
+            nf_consumer_identification: nf_identification,
+            invocation_time_stamp: chrono::Utc::now().to_rfc3339(),
+            invocation_sequence_number: 0,
+            one_time_event: Some(false),
+            one_time_event_type: None,
+            notify_uri: None,
+            multipleunit_usage: None,
+            triggers: None,
+            pdu_session_charging_information: Some(pdu_session_charging_info),
+            roaming_qbc_information: None,
+            tenant_identifier: None,
+        };
+
+        match chf_client.create_charging_session(&chf_uri, charging_request).await {
+            Ok((charging_ref, _charging_response)) => {
+                sm_context.chf_charging_ref = Some(charging_ref.clone());
+                tracing::info!(
+                    "Charging session created for SUPI: {}, Charging Ref: {}",
+                    payload.supi,
+                    charging_ref
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to create charging session for SUPI: {}: {}, continuing without charging",
+                    payload.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("CHF client not available, skipping charging session creation");
+    }
+
     if let Some(ref pfcp_client) = state.pfcp_client {
         let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
 
@@ -749,6 +850,52 @@ pub async fn release_pdu_session(
         }
     } else {
         tracing::debug!("PCF client or policy ID not available, skipping SM policy deletion");
+    }
+
+    if let (Some(ref chf_client), Some(ref charging_ref)) = (&state.chf_client, &sm_context.chf_charging_ref) {
+        let chf_uri = std::env::var("CHF_URI").unwrap_or_default();
+
+        let nf_identification = crate::types::chf::NfIdentification {
+            nf_name: format!("SMF-{}", std::env::var("NF_INSTANCE_ID").unwrap_or_else(|_| "unknown".to_string())),
+            nf_ip_v4_address: Some(std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())),
+            nf_ip_v6_address: None,
+            nf_plmn_id: None,
+            nf_fqdn: None,
+        };
+
+        let charging_request = crate::types::chf::ChargingDataRequest {
+            subscriber_identifier: sm_context.supi.clone(),
+            nf_consumer_identification: nf_identification,
+            invocation_time_stamp: chrono::Utc::now().to_rfc3339(),
+            invocation_sequence_number: 1,
+            one_time_event: Some(false),
+            one_time_event_type: None,
+            notify_uri: None,
+            multipleunit_usage: None,
+            triggers: Some(vec![crate::types::chf::Trigger::StopOfServiceDataFlow]),
+            pdu_session_charging_information: None,
+            roaming_qbc_information: None,
+            tenant_identifier: None,
+        };
+
+        match chf_client.release_charging_session(&chf_uri, charging_ref, charging_request).await {
+            Ok(_) => {
+                tracing::info!(
+                    "Charging session released for SUPI: {}, Charging Ref: {}",
+                    sm_context.supi,
+                    charging_ref
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to release charging session for SUPI: {}: {}, proceeding with SM Context deletion",
+                    sm_context.supi,
+                    e
+                );
+            }
+        }
+    } else {
+        tracing::debug!("CHF client or charging ref not available, skipping charging session release");
     }
 
     state.notification_service.notify_pdu_session_event(

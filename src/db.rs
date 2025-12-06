@@ -13,6 +13,7 @@ use crate::services::ssc_selector::SscModeSelector;
 use crate::services::pcf::PcfClient;
 use crate::services::udm::UdmClient;
 use crate::services::udr::UdrClient;
+use crate::services::chf::ChfClient;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -24,6 +25,7 @@ pub struct AppState {
     pub pcf_client: Option<Arc<PcfClient>>,
     pub udm_client: Option<Arc<UdmClient>>,
     pub udr_client: Option<Arc<UdrClient>>,
+    pub chf_client: Option<Arc<ChfClient>>,
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
@@ -123,6 +125,14 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         None
     };
 
+    let chf_client = if let Some(chf_uri) = &config.chf_uri {
+        tracing::info!("CHF client initialized with URI: {}", chf_uri);
+        Some(Arc::new(ChfClient::new()))
+    } else {
+        tracing::warn!("CHF_URI not configured. Charging will be disabled.");
+        None
+    };
+
     let slice_selector = Arc::new(SliceSelector::new());
     tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
 
@@ -139,6 +149,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         pcf_client,
         udm_client,
         udr_client,
+        chf_client,
         nrf_registration,
         nrf_discovery,
         slice_selector,
