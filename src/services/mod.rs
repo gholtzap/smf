@@ -19,3 +19,4 @@ pub mod ssc_selector;
 pub mod handover;
 pub mod udr;
 pub mod chf;
+pub mod emergency;

@@ -13,6 +13,7 @@ use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
 use crate::services::handover::HandoverService;
+use crate::services::emergency::EmergencyService;
 use std::sync::Arc;
 
 pub async fn create_pdu_session(
@@ -20,6 +21,23 @@ pub async fn create_pdu_session(
     Json(payload): Json<PduSessionCreateData>,
 ) -> Result<Json<PduSessionCreatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    EmergencyService::validate_emergency_request(
+        &payload.request_type,
+        &payload.dnn,
+        payload.unauthenticated_supi,
+    )
+    .map_err(AppError::ValidationError)?;
+
+    let is_emergency = EmergencyService::is_emergency_request(&payload.request_type);
+    if is_emergency {
+        tracing::info!(
+            "Emergency PDU session request detected for SUPI: {}, DNN: {}, Request Type: {:?}",
+            payload.supi,
+            payload.dnn,
+            payload.request_type
+        );
+    }
 
     let slice_config = state
         .slice_selector
@@ -149,10 +167,20 @@ pub async fn create_pdu_session(
         payload.supi
     );
 
-    let default_5qi = subscriber_5qi
-        .or(dnn_config.default_5qi)
-        .or(slice_config.default_5qi)
-        .unwrap_or(9);
+    let default_5qi = if sm_context.is_emergency {
+        let emergency_5qi = EmergencyService::get_emergency_priority_5qi();
+        tracing::info!(
+            "Emergency session: applying high-priority 5QI {} for SUPI: {}",
+            emergency_5qi,
+            payload.supi
+        );
+        emergency_5qi
+    } else {
+        subscriber_5qi
+            .or(dnn_config.default_5qi)
+            .or(slice_config.default_5qi)
+            .unwrap_or(9)
+    };
 
     sm_context.qos_flows = vec![QosFlow::new_with_5qi(1, default_5qi)];
     tracing::debug!(

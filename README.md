@@ -224,6 +224,13 @@ The server will start on `http://localhost:8080` by default.
   - List all PDU sessions for a UE endpoint (GET /nsmf-pdusession/v1/ue-contexts/{supi}/sm-contexts)
   - Retrieve PDU session by SUPI and PDU Session ID endpoint (GET /nsmf-pdusession/v1/ue-contexts/{supi}/sm-contexts/{pduSessionId})
   - MongoDB index optimization for session lookups by SUPI
+- Emergency services PDU session establishment
+  - Emergency request type detection (InitialEmergencyRequest, ExistingEmergencyPduSession)
+  - Emergency DNN validation (sos, emergency, ims-emergency)
+  - High-priority QoS assignment for emergency sessions (5QI 5)
+  - Support for unauthenticated SUPI in emergency scenarios
+  - Emergency session tracking in SM context
+  - Automatic emergency service authorization
 
 ### QoS & Traffic Management
 - QoS Flow Management
@@ -352,7 +359,6 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode 1: IP address preservation during mobility
   - SSC mode 2: Session release and re-establishment logic
   - SSC mode 3: Make-before-break session establishment logic
-- Emergency services PDU session establishment
 
 ### QoS & Traffic Management
 - Slice-specific QoS policies

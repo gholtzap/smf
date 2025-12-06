@@ -203,12 +203,19 @@ pub struct SmContext {
     pub an_tunnel_info: Option<TunnelInfo>,
     pub ue_location: Option<UserLocation>,
     pub handover_state: Option<HoState>,
+    pub is_emergency: bool,
+    pub request_type: Option<RequestType>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl SmContext {
     pub fn new(create_data: &PduSessionCreateData) -> Self {
+        let is_emergency = matches!(
+            create_data.request_type,
+            Some(RequestType::InitialEmergencyRequest) | Some(RequestType::ExistingEmergencyPduSession)
+        );
+
         Self {
             id: Uuid::new_v4().to_string(),
             supi: create_data.supi.clone(),
@@ -229,6 +236,8 @@ impl SmContext {
             an_tunnel_info: None,
             ue_location: create_data.ue_location.clone(),
             handover_state: None,
+            is_emergency,
+            request_type: create_data.request_type.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
