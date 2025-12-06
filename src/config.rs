@@ -1,4 +1,5 @@
 use std::env;
+use crate::middleware::OAuth2Config;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -14,6 +15,7 @@ pub struct Config {
     pub chf_uri: Option<String>,
     pub nf_instance_id: String,
     pub smf_host: String,
+    pub oauth2: OAuth2Config,
 }
 
 impl Config {
@@ -53,6 +55,30 @@ impl Config {
         let smf_host = env::var("SMF_HOST")
             .unwrap_or_else(|_| "127.0.0.1".to_string());
 
+        let oauth2_enabled = env::var("OAUTH2_ENABLED")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
+
+        let oauth2_issuer = env::var("OAUTH2_ISSUER")
+            .unwrap_or_else(|_| "".to_string());
+
+        let oauth2_audience = env::var("OAUTH2_AUDIENCE")
+            .unwrap_or_else(|_| "".to_string())
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+
+        let oauth2_required_scope = env::var("OAUTH2_REQUIRED_SCOPE").ok();
+
+        let oauth2 = OAuth2Config {
+            enabled: oauth2_enabled,
+            issuer: oauth2_issuer,
+            audience: oauth2_audience,
+            required_scope: oauth2_required_scope,
+        };
+
         Ok(Self {
             port,
             mongodb_uri,
@@ -66,6 +92,7 @@ impl Config {
             chf_uri,
             nf_instance_id,
             smf_host,
+            oauth2,
         })
     }
 }

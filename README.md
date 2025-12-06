@@ -26,6 +26,10 @@ UDM_URI=http://localhost:8002
 CHF_URI=http://localhost:8003
 NF_INSTANCE_ID=
 SMF_HOST=127.0.0.1
+OAUTH2_ENABLED=false
+OAUTH2_ISSUER=
+OAUTH2_AUDIENCE=
+OAUTH2_REQUIRED_SCOPE=
 ```
 
 ## Building
@@ -313,6 +317,18 @@ The server will start on `http://localhost:8080` by default.
   - QoS flow creation aligned with slice policies
   - Priority and QoS parameter inheritance from slice configuration
 
+### Security
+- OAuth2 authentication for SBI:
+  - OAuth2 token validation middleware
+    - JWT token parsing and validation
+    - Token expiration checking
+    - Bearer token authentication support
+    - Request extension for validated tokens
+    - Configurable OAuth2 settings (issuer, audience, scope)
+    - Environment-based configuration (OAUTH2_ENABLED, OAUTH2_ISSUER, OAUTH2_AUDIENCE, OAUTH2_REQUIRED_SCOPE)
+    - Protected and public route separation
+    - Conditional middleware application
+
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
   - Path switch request detection and processing
@@ -379,10 +395,22 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode 3: Make-before-break session establishment logic
 
 ### Security
-- OAuth2 authentication for SBI
-- Service-based interface security
-- User plane encryption and integrity protection
-- Authorization and access control
+- OAuth2 authentication for SBI:
+  - NRF OAuth2 token endpoint integration
+  - Access token caching and refresh logic
+  - Token-based authentication for outbound NF requests
+- Service-based interface security:
+  - TLS configuration for HTTP server
+  - Certificate management
+  - Mutual TLS (mTLS) support
+- User plane encryption and integrity protection:
+  - UP security policy negotiation
+  - Encryption algorithm selection (NEA0, NEA1, NEA2, NEA3)
+  - Integrity algorithm selection (NIA0, NIA1, NIA2, NIA3)
+- Authorization and access control:
+  - NF authorization policy framework
+  - Resource-based access control
+  - Scope validation for OAuth2 tokens
 
 ### Advanced Features
 - Local breakout and MEC support

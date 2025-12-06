@@ -5,8 +5,9 @@ mod models;
 mod services;
 mod types;
 mod utils;
+mod middleware;
 
-use axum::{Router, routing::{get, post, put, delete}};
+use axum::{Router, routing::{get, post, put, delete}, middleware as axum_middleware};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -36,8 +37,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let app = Router::new()
-        .route("/health", get(health_check))
+    let mut protected_routes = Router::new()
         .route("/nsmf-pdusession/v1/sm-contexts", post(handlers::pdu_session::create_pdu_session))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef", get(handlers::pdu_session::retrieve_pdu_session))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/modify", post(handlers::pdu_session::update_pdu_session))
@@ -60,10 +60,22 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/qos-rules/apply", post(handlers::qos_rule::apply_qos_rules))
         .route("/nsmf-event-exposure/v1/subscriptions", post(handlers::event_exposure::create_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
-        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
+        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription));
+
+    if config.oauth2.enabled {
+        tracing::info!("OAuth2 authentication enabled");
+        protected_routes = protected_routes.route_layer(axum_middleware::from_fn(middleware::oauth2_validation_middleware));
+    }
+
+    let public_routes = Router::new()
+        .route("/health", get(health_check))
         .route("/nnrf-nfm/v1/nf-status-notify", post(handlers::nrf_notification::handle_nf_status_notification))
         .route("/namf-callback/v1/ue-contexts/:ueId/n1-n2-transfers/:transactionId/notify", post(handlers::amf_callback::handle_n1n2_transfer_status))
-        .route("/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify", post(handlers::amf_callback::handle_n2_info_notify))
+        .route("/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify", post(handlers::amf_callback::handle_n2_info_notify));
+
+    let app = Router::new()
+        .merge(protected_routes)
+        .merge(public_routes)
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

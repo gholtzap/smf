@@ -16,6 +16,7 @@ pub mod ssc;
 pub mod handover;
 pub mod udr;
 pub mod chf;
+pub mod oauth2;
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,7 @@ pub use amf::*;
 pub use ssc::*;
 pub use handover::*;
 pub use udr::*;
+pub use oauth2::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
