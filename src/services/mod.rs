@@ -17,3 +17,4 @@ pub mod udm;
 pub mod pcf;
 pub mod ssc_selector;
 pub mod handover;
+pub mod udr;

@@ -152,6 +152,22 @@ The server will start on `http://localhost:8080` by default.
   - DNN configuration validation against subscriber's allowed DNNs
   - SSC mode validation from subscriber data
   - Automatic fallback to DNN and slice defaults when UDM unavailable
+- UDR client implementation (HTTP client for Nudr service endpoints)
+  - UDR client data models for Nudr_DataRepository (Session Management Subscription Data, SMF Selection Data)
+  - UDR client HTTP implementation with error handling
+  - SM subscription data retrieval endpoint (GET /nudr-dr/v2/subscription-data/{supi}/context-data/smf-registrations/{snssai})
+  - SM subscription data creation endpoint (PUT /nudr-dr/v2/subscription-data/{supi}/context-data/smf-registrations/{snssai})
+  - SM subscription data update endpoint (PATCH /nudr-dr/v2/subscription-data/{supi}/context-data/smf-registrations/{snssai})
+  - SM subscription data deletion endpoint (DELETE /nudr-dr/v2/subscription-data/{supi}/context-data/smf-registrations/{snssai})
+  - SMF selection subscription data retrieval endpoint (GET /nudr-dr/v2/subscription-data/{supi}/context-data/smf-selection-subscription-data)
+  - SMF selection subscription data creation endpoint (PUT /nudr-dr/v2/subscription-data/{supi}/context-data/smf-selection-subscription-data)
+  - Comprehensive data models for DNN configurations, QoS profiles, SSC modes, UE behavior, and geographic areas
+  - Support for query parameters (DNN, PLMN ID)
+- UDR integration for direct data repository access
+  - UDR discovery via NRF service discovery
+  - UDR client initialization with NRF-based discovery
+  - Direct data repository access for session management subscription data
+  - SMF selection subscription data access
 - PCF client implementation (HTTP client for Npcf service endpoints)
   - PCF client data models for Npcf_SMPolicyControl (SM Policy Control)
   - SM policy context data models (SmPolicyContextData, SmPolicyUpdateContextData)
@@ -308,11 +324,6 @@ The server will start on `http://localhost:8080` by default.
   - N2 message container handling (NGAP messages)
   - N1N2MessageTransfer endpoint implementation
   - AMF callback endpoints for N1/N2 message delivery
-- UDR client integration for direct data access
-  - UDR client data models (Nudr_DataRepository)
-  - UDR client HTTP implementation
-  - UDR discovery via NRF
-  - Direct UDR data access endpoints
 - CHF integration for charging
 
 ### Session Management
