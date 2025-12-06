@@ -1,17 +1,27 @@
 use crate::types::chf::{ChargingDataRequest, ChargingDataResponse};
 use crate::types::nrf::ProblemDetails;
+use crate::types::oauth2_request::OAuth2ClientExt;
+use crate::services::oauth2_client::OAuth2TokenClient;
 use anyhow::{Result, Context};
 use reqwest::{Client, StatusCode};
+use std::sync::Arc;
 
 pub struct ChfClient {
     client: Client,
+    oauth2_client: Option<Arc<OAuth2TokenClient>>,
 }
 
 impl ChfClient {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
+            oauth2_client: None,
         }
+    }
+
+    pub fn with_oauth2(mut self, oauth2_client: Arc<OAuth2TokenClient>) -> Self {
+        self.oauth2_client = Some(oauth2_client);
+        self
     }
 
     pub async fn create_charging_session(
@@ -25,6 +35,11 @@ impl ChfClient {
             .client
             .post(&url)
             .json(&charging_request)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("CHF".to_string()),
+                "nchf-convergedcharging".to_string(),
+            )
             .send()
             .await
             .context("Failed to send charging data request to CHF")?;
@@ -126,6 +141,11 @@ impl ChfClient {
             .client
             .post(&url)
             .json(&charging_request)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("CHF".to_string()),
+                "nchf-convergedcharging".to_string(),
+            )
             .send()
             .await
             .context("Failed to send charging data update request to CHF")?;
@@ -200,6 +220,11 @@ impl ChfClient {
             .client
             .post(&url)
             .json(&charging_request)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("CHF".to_string()),
+                "nchf-convergedcharging".to_string(),
+            )
             .send()
             .await
             .context("Failed to send charging data release request to CHF")?;

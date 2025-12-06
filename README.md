@@ -328,6 +328,25 @@ The server will start on `http://localhost:8080` by default.
     - Environment-based configuration (OAUTH2_ENABLED, OAUTH2_ISSUER, OAUTH2_AUDIENCE, OAUTH2_REQUIRED_SCOPE)
     - Protected and public route separation
     - Conditional middleware application
+  - NRF OAuth2 token endpoint integration
+    - OAuth2 token client for requesting access tokens
+    - Support for client_credentials grant type
+    - NF instance ID and type identification in token requests
+    - Target NF type specification for service-specific tokens
+    - Custom scope support for fine-grained access control
+  - Access token caching and refresh logic
+    - Token cache with expiration tracking
+    - Automatic token refresh with configurable buffer time (default 300 seconds)
+    - Per-target and per-scope token caching
+    - Token invalidation and cache management
+    - Thread-safe token storage using Arc and RwLock
+  - Token-based authentication for outbound NF requests
+    - OAuth2RequestBuilder for attaching bearer tokens to HTTP requests
+    - OAuth2ClientExt trait for seamless integration with reqwest
+    - Automatic token acquisition and attachment to outbound requests
+    - Support for NRF, UDM, PCF, and CHF client authentication
+    - Optional OAuth2 authentication per client instance
+    - Service-specific scope selection (nnrf-nfm, nudm-sdm, npcf-smpolicycontrol, nchf-convergedcharging)
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -395,10 +414,6 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode 3: Make-before-break session establishment logic
 
 ### Security
-- OAuth2 authentication for SBI:
-  - NRF OAuth2 token endpoint integration
-  - Access token caching and refresh logic
-  - Token-based authentication for outbound NF requests
 - Service-based interface security:
   - TLS configuration for HTTP server
   - Certificate management

@@ -17,6 +17,7 @@ pub mod handover;
 pub mod udr;
 pub mod chf;
 pub mod oauth2;
+pub mod oauth2_request;
 
 use serde::{Deserialize, Serialize};
 

@@ -3,18 +3,28 @@ use crate::types::{
     Snssai, PlmnId,
 };
 use crate::types::nrf::ProblemDetails;
+use crate::types::oauth2_request::OAuth2ClientExt;
+use crate::services::oauth2_client::OAuth2TokenClient;
 use anyhow::{Result, Context};
 use reqwest::{Client, StatusCode};
+use std::sync::Arc;
 
 pub struct UdmClient {
     client: Client,
+    oauth2_client: Option<Arc<OAuth2TokenClient>>,
 }
 
 impl UdmClient {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
+            oauth2_client: None,
         }
+    }
+
+    pub fn with_oauth2(mut self, oauth2_client: Arc<OAuth2TokenClient>) -> Self {
+        self.oauth2_client = Some(oauth2_client);
+        self
     }
 
     pub async fn get_sm_data(
@@ -58,6 +68,11 @@ impl UdmClient {
         let response = self
             .client
             .get(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("UDM".to_string()),
+                "nudm-sdm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send request to UDM for SM data")?;
@@ -132,6 +147,11 @@ impl UdmClient {
             .client
             .post(&url)
             .json(&subscription)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("UDM".to_string()),
+                "nudm-sdm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send SDM subscription request to UDM")?;
@@ -200,6 +220,11 @@ impl UdmClient {
         let response = self
             .client
             .delete(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("UDM".to_string()),
+                "nudm-sdm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send SDM unsubscribe request to UDM")?;
@@ -251,6 +276,11 @@ impl UdmClient {
             .client
             .put(&url)
             .json(&subscription)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("UDM".to_string()),
+                "nudm-sdm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send SDM subscription modification request to UDM")?;

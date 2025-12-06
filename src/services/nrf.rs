@@ -2,6 +2,8 @@ use crate::types::{
     NFProfile, NfType, NfStatus, SearchResult, SubscriptionData,
     ProblemDetails, QueryParams,
 };
+use crate::types::oauth2_request::OAuth2ClientExt;
+use crate::services::oauth2_client::OAuth2TokenClient;
 use anyhow::{Result, Context};
 use reqwest::{Client, StatusCode};
 use std::sync::Arc;
@@ -12,6 +14,7 @@ pub struct NrfClient {
     nrf_uri: String,
     nf_instance_id: String,
     profile: Arc<RwLock<Option<NFProfile>>>,
+    oauth2_client: Option<Arc<OAuth2TokenClient>>,
 }
 
 impl NrfClient {
@@ -21,7 +24,13 @@ impl NrfClient {
             nrf_uri,
             nf_instance_id,
             profile: Arc::new(RwLock::new(None)),
+            oauth2_client: None,
         }
+    }
+
+    pub fn with_oauth2(mut self, oauth2_client: Arc<OAuth2TokenClient>) -> Self {
+        self.oauth2_client = Some(oauth2_client);
+        self
     }
 
     pub async fn register(&self, profile: NFProfile) -> Result<NFProfile> {
@@ -34,6 +43,11 @@ impl NrfClient {
             .client
             .put(&url)
             .json(&profile)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send registration request to NRF")?;
@@ -76,6 +90,11 @@ impl NrfClient {
             .client
             .patch(&url)
             .json(&profile)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send update request to NRF")?;
@@ -112,6 +131,11 @@ impl NrfClient {
         let response = self
             .client
             .delete(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send deregistration request to NRF")?;
@@ -148,6 +172,11 @@ impl NrfClient {
         let response = self
             .client
             .get(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send get profile request to NRF")?;
@@ -194,6 +223,11 @@ impl NrfClient {
         let response = self
             .client
             .get(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-disc".to_string(),
+            )
             .send()
             .await
             .context("Failed to send discovery request to NRF")?;
@@ -239,6 +273,11 @@ impl NrfClient {
             .client
             .post(&url)
             .json(&subscription)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send subscription request to NRF")?;
@@ -277,6 +316,11 @@ impl NrfClient {
         let response = self
             .client
             .delete(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send unsubscribe request to NRF")?;
@@ -310,6 +354,11 @@ impl NrfClient {
         let response = self
             .client
             .patch(&url)
+            .with_oauth2_auth(
+                self.oauth2_client.clone(),
+                Some("NRF".to_string()),
+                "nnrf-nfm".to_string(),
+            )
             .send()
             .await
             .context("Failed to send heartbeat to NRF")?;

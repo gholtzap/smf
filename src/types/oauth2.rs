@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessToken {
@@ -60,4 +60,45 @@ pub struct TokenIntrospectionResponse {
     pub iss: Option<String>,
     pub nf_instance_id: Option<String>,
     pub nf_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenRequest {
+    pub grant_type: String,
+    pub nf_instance_id: String,
+    pub nf_type: Option<String>,
+    pub target_nf_instance_id: Option<String>,
+    pub target_nf_type: Option<String>,
+    pub scope: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedToken {
+    pub access_token: String,
+    pub expires_at: DateTime<Utc>,
+    pub scope: String,
+}
+
+impl CachedToken {
+    pub fn from_access_token(token: AccessToken) -> Self {
+        let expires_at = Utc::now() + Duration::seconds(token.expires_in);
+        Self {
+            access_token: token.access_token,
+            expires_at,
+            scope: token.scope.unwrap_or_default(),
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        Utc::now() >= self.expires_at
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.is_expired()
+    }
+
+    pub fn expires_soon(&self, buffer_seconds: i64) -> bool {
+        let buffer_time = Utc::now() + Duration::seconds(buffer_seconds);
+        buffer_time >= self.expires_at
+    }
 }

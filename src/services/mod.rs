@@ -21,3 +21,4 @@ pub mod handover;
 pub mod udr;
 pub mod chf;
 pub mod emergency;
+pub mod oauth2_client;
