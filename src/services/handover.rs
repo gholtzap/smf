@@ -1,5 +1,6 @@
 use crate::models::{TunnelInfo, N2SmInfoType};
 use crate::types::{HoState, SmContextState};
+use base64::{Engine as _, engine::general_purpose};
 
 type HandoverResult<T> = Result<T, String>;
 
@@ -10,7 +11,22 @@ impl HandoverService {
         matches!(n2_sm_info_type, Some(N2SmInfoType::PathSwitchReq))
     }
 
-    pub fn extract_an_tunnel_info(_ngap_data: &str) -> HandoverResult<TunnelInfo> {
+    pub fn extract_an_tunnel_info(ngap_data: &str) -> HandoverResult<TunnelInfo> {
+        let decoded_bytes = general_purpose::STANDARD
+            .decode(ngap_data)
+            .map_err(|e| format!("Failed to decode base64 NGAP data: {}", e))?;
+
+        tracing::debug!(
+            "Decoded NGAP data: {} bytes from base64 string of {} chars",
+            decoded_bytes.len(),
+            ngap_data.len()
+        );
+
+        tracing::warn!(
+            "NGAP ASN.1 parsing not yet implemented. Using placeholder tunnel info. Decoded {} bytes of NGAP data.",
+            decoded_bytes.len()
+        );
+
         Ok(TunnelInfo {
             ipv4_addr: Some("192.168.1.100".to_string()),
             ipv6_addr: None,

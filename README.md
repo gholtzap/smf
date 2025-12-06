@@ -409,6 +409,10 @@ The server will start on `http://localhost:8080` by default.
   - Handover cancel cause support (HO_TARGET_NOT_ALLOWED, HO_TARGET_BECOMING_RICH, HO_TARGET_NOT_REACHABLE, HO_FAILURE_IN_TARGET_SYSTEM, HO_CANCELLED)
   - SM context state restoration to Active on cancellation
   - Handover cancel endpoint (POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/handover-cancel)
+- N2 SM information extraction and processing:
+  - Base64 decoding of N2 SM info ngap_data field
+  - Error handling for invalid base64 encoded NGAP data
+  - Decoded NGAP data size logging for debugging
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -426,7 +430,12 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - N2-based handover completion:
-    - N2 SM information extraction and processing during handover
+    - N2 SM information extraction and processing during handover:
+      - NGAP ASN.1 message parsing infrastructure
+      - AN tunnel information extraction from NGAP PDU Session Resource Setup Response
+      - AN tunnel information extraction from NGAP Path Switch Request
+      - QoS flow information extraction from NGAP messages
+      - UE location information extraction from NGAP messages
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
