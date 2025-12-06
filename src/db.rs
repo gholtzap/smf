@@ -8,6 +8,7 @@ use crate::services::nrf::NrfClient;
 use crate::services::nrf_registration::NrfRegistrationService;
 use crate::services::nrf_discovery::NrfDiscoveryService;
 use crate::services::slice_selection::SliceSelector;
+use crate::services::slice_qos_policy::SliceQosPolicyService;
 use crate::services::dnn_selector::DnnSelector;
 use crate::services::ssc_selector::SscModeSelector;
 use crate::services::pcf::PcfClient;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub nrf_registration: Option<Arc<NrfRegistrationService>>,
     pub nrf_discovery: Option<Arc<NrfDiscoveryService>>,
     pub slice_selector: Arc<SliceSelector>,
+    pub slice_qos_policy_service: Arc<SliceQosPolicyService>,
     pub dnn_selector: Arc<DnnSelector>,
     pub ssc_selector: Arc<SscModeSelector>,
 }
@@ -136,6 +138,9 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let slice_selector = Arc::new(SliceSelector::new());
     tracing::info!("Slice selector initialized with {} configured slices", slice_selector.list_allowed_slices().len());
 
+    let slice_qos_policy_service = Arc::new(SliceQosPolicyService::new());
+    tracing::info!("Slice QoS policy service initialized with {} slice policies", slice_qos_policy_service.list_policies().len());
+
     let dnn_selector = Arc::new(DnnSelector::new());
     tracing::info!("DNN selector initialized with {} configured DNNs", dnn_selector.list_allowed_dnns().len());
 
@@ -153,6 +158,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         nrf_registration,
         nrf_discovery,
         slice_selector,
+        slice_qos_policy_service,
         dnn_selector,
         ssc_selector,
     })

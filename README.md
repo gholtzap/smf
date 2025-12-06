@@ -295,6 +295,24 @@ The server will start on `http://localhost:8080` by default.
 - Default MTU value of 1500 bytes
 - MTU propagation from IP pool or DNN to UE
 
+### Slice-specific QoS Policies
+- Slice-specific QoS policy framework with comprehensive policy types
+  - Per-slice default QoS flow configurations (5QI, priority, delay budget, error rate)
+  - Additional QoS flow configurations per slice
+  - Slice-specific QoS flow type enforcement (GBR, non-GBR, delay-GBR)
+  - Slice-specific preemption capability and vulnerability settings
+  - Maximum QoS flows per slice configuration
+- Slice QoS policy service for policy management
+  - Default policies for standard slices (eMBB, URLLC, MIoT, eMBB-Premium)
+  - Policy-based QoS flow creation with slice-specific parameters
+  - QoS flow validation against slice policies
+  - Priority level assignment per slice
+- Integration with PDU session management
+  - Automatic slice-specific QoS application during PDU session creation
+  - Slice-specific QoS enforcement during PDU session updates
+  - QoS flow creation aligned with slice policies
+  - Priority and QoS parameter inheritance from slice configuration
+
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
   - Path switch request detection and processing
@@ -359,9 +377,6 @@ The server will start on `http://localhost:8080` by default.
   - SSC mode 1: IP address preservation during mobility
   - SSC mode 2: Session release and re-establishment logic
   - SSC mode 3: Make-before-break session establishment logic
-
-### QoS & Traffic Management
-- Slice-specific QoS policies
 
 ### Security
 - OAuth2 authentication for SBI

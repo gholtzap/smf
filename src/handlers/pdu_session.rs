@@ -182,10 +182,15 @@ pub async fn create_pdu_session(
             .unwrap_or(9)
     };
 
-    sm_context.qos_flows = vec![QosFlow::new_with_5qi(1, default_5qi)];
+    let qos_flow = state
+        .slice_qos_policy_service
+        .create_qos_flow_with_5qi(&payload.s_nssai, 1, default_5qi);
+
+    sm_context.qos_flows = vec![qos_flow.clone()];
     tracing::debug!(
-        "Applied default 5QI: {} for DNN: {}, Slice: {}",
-        default_5qi,
+        "Applied slice-specific QoS flow with 5QI: {}, priority: {}, for DNN: {}, Slice: {}",
+        qos_flow.five_qi,
+        qos_flow.priority_level,
         dnn_config.dnn,
         slice_config.slice_name
     );
@@ -715,9 +720,13 @@ pub async fn update_pdu_session(
     if let Some(ref qos_flows_add_mod) = payload.qos_flows_add_mod_request_list {
         for qf_item in qos_flows_add_mod {
             let qos_flow = if let Some(ref profile) = qf_item.qos_profile {
-                QosFlow::new_with_5qi(qf_item.qfi, profile.five_qi)
+                state
+                    .slice_qos_policy_service
+                    .create_qos_flow_with_5qi(&sm_context.s_nssai, qf_item.qfi, profile.five_qi)
             } else {
-                QosFlow::new_default(qf_item.qfi)
+                state
+                    .slice_qos_policy_service
+                    .create_default_qos_flow(&sm_context.s_nssai, qf_item.qfi)
             };
             add_qos_flows.push(qos_flow.clone());
         }
