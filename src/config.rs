@@ -2,6 +2,13 @@ use std::env;
 use crate::middleware::OAuth2Config;
 
 #[derive(Debug, Clone)]
+pub struct TlsConfig {
+    pub enabled: bool,
+    pub cert_path: Option<String>,
+    pub key_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
     pub port: u16,
     pub mongodb_uri: String,
@@ -16,6 +23,7 @@ pub struct Config {
     pub nf_instance_id: String,
     pub smf_host: String,
     pub oauth2: OAuth2Config,
+    pub tls: TlsConfig,
 }
 
 impl Config {
@@ -79,6 +87,20 @@ impl Config {
             required_scope: oauth2_required_scope,
         };
 
+        let tls_enabled = env::var("TLS_ENABLED")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
+
+        let tls_cert_path = env::var("TLS_CERT_PATH").ok();
+        let tls_key_path = env::var("TLS_KEY_PATH").ok();
+
+        let tls = TlsConfig {
+            enabled: tls_enabled,
+            cert_path: tls_cert_path,
+            key_path: tls_key_path,
+        };
+
         Ok(Self {
             port,
             mongodb_uri,
@@ -93,6 +115,7 @@ impl Config {
             nf_instance_id,
             smf_host,
             oauth2,
+            tls,
         })
     }
 }

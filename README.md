@@ -30,6 +30,9 @@ OAUTH2_ENABLED=false
 OAUTH2_ISSUER=
 OAUTH2_AUDIENCE=
 OAUTH2_REQUIRED_SCOPE=
+TLS_ENABLED=false
+TLS_CERT_PATH=
+TLS_KEY_PATH=
 ```
 
 ## Building
@@ -347,6 +350,13 @@ The server will start on `http://localhost:8080` by default.
     - Support for NRF, UDM, PCF, and CHF client authentication
     - Optional OAuth2 authentication per client instance
     - Service-specific scope selection (nnrf-nfm, nudm-sdm, npcf-smpolicycontrol, nchf-convergedcharging)
+- Service-based interface security:
+  - TLS configuration for HTTP server
+    - TLS/HTTPS server support with rustls
+    - PEM certificate and private key loading
+    - Environment-based TLS configuration (TLS_ENABLED, TLS_CERT_PATH, TLS_KEY_PATH)
+    - Conditional TLS activation (HTTP/HTTPS mode selection)
+    - Ring crypto provider for cross-platform compatibility
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -415,7 +425,6 @@ The server will start on `http://localhost:8080` by default.
 
 ### Security
 - Service-based interface security:
-  - TLS configuration for HTTP server
   - Certificate management
   - Mutual TLS (mTLS) support
 - User plane encryption and integrity protection:

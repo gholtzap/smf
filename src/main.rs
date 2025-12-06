@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tokio::signal;
+use axum_server::tls_rustls::RustlsConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -80,20 +81,42 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    tracing::info!("Starting SMF server on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let nrf_reg_for_shutdown = state.nrf_registration.clone();
 
-    tokio::select! {
-        result = axum::serve(listener, app) => {
-            if let Err(e) = result {
-                tracing::error!("Server error: {}", e);
+    if config.tls.enabled {
+        let cert_path = config.tls.cert_path.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("TLS enabled but TLS_CERT_PATH not set"))?;
+        let key_path = config.tls.key_path.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("TLS enabled but TLS_KEY_PATH not set"))?;
+
+        tracing::info!("Starting SMF server with TLS on https://{}", addr);
+        let tls_config = RustlsConfig::from_pem_file(cert_path, key_path).await?;
+
+        tokio::select! {
+            result = axum_server::bind_rustls(addr, tls_config)
+                .serve(app.into_make_service()) => {
+                if let Err(e) = result {
+                    tracing::error!("Server error: {}", e);
+                }
+            }
+            _ = shutdown_signal() => {
+                tracing::info!("Shutdown signal received");
             }
         }
-        _ = shutdown_signal() => {
-            tracing::info!("Shutdown signal received");
+    } else {
+        tracing::info!("Starting SMF server on http://{}", addr);
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+
+        tokio::select! {
+            result = axum::serve(listener, app) => {
+                if let Err(e) = result {
+                    tracing::error!("Server error: {}", e);
+                }
+            }
+            _ = shutdown_signal() => {
+                tracing::info!("Shutdown signal received");
+            }
         }
     }
 
