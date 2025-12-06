@@ -193,6 +193,14 @@ The server will start on `http://localhost:8080` by default.
   - Charging reference tracking in SM context
   - Support for usage reporting, quota management, and trigger-based charging
   - Comprehensive data models for rating groups, QoS information, and location data
+- AMF callback endpoints for N1/N2 messaging
+  - N1N2 message transfer status notification endpoint (POST /namf-callback/v1/ue-contexts/{ueId}/n1-n2-transfers/{transactionId}/notify)
+  - N2 information notification endpoint (POST /namf-callback/v1/sm-contexts/{ueId}/pdu-sessions/{pduSessionId}/n2-notify)
+  - N1 message container handling (NAS messages)
+  - N2 message container handling (NGAP messages)
+  - Support for PDU resource setup, modify, release responses and failures
+  - Support for path switch and handover notifications
+  - Status notification processing with cause indication
 
 ### SSC Mode Management
 - SSC mode selection and validation framework
@@ -329,13 +337,6 @@ The server will start on `http://localhost:8080` by default.
 - 3GPP data models and types
 - Session context structures
 - Network slice selection data
-
-### Network Function Integration - Other NFs
-- AMF communication (Namf callbacks) for N1/N2 messaging
-  - N1 message container handling (NAS messages)
-  - N2 message container handling (NGAP messages)
-  - N1N2MessageTransfer endpoint implementation
-  - AMF callback endpoints for N1/N2 message delivery
 
 ### Session Management
 - Session continuity and mobility (handover procedures):

@@ -4,3 +4,4 @@ pub mod nidd;
 pub mod nrf_notification;
 pub mod packet_filter;
 pub mod qos_rule;
+pub mod amf_callback;

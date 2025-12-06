@@ -236,3 +236,52 @@ pub struct MultipartPart {
     pub content_type: String,
     pub data: BinaryData,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct N1N2MessageTransferStatusNotification {
+    pub status_info: N1N2MessageTransferStatusInfo,
+    pub n1_message_container: Option<N1MessageContainer>,
+    pub n2_info_container: Option<N2InfoContainer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct N1N2MessageTransferStatusInfo {
+    pub status: N1N2MessageTransferStatus,
+    pub cause: Option<N1N2MessageTransferCause>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum N1N2MessageTransferStatus {
+    Success,
+    Failure,
+    PartialSuccess,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct N2InfoNotification {
+    pub n2_info_container: N2InfoContainer,
+    pub n2_notify_subscription_id: Option<String>,
+    pub sm_info_type: Option<N2SmInfoType>,
+    pub ng_ran_cell_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum N2SmInfoType {
+    PduResSetupRsp,
+    PduResSetupFail,
+    PduResModifyRsp,
+    PduResModifyFail,
+    PduResReleaseCmd,
+    PduResReleaseRsp,
+    PduResNotifyRel,
+    PathSwitchRequestAck,
+    PathSwitchRequestFail,
+    HandoverRequired,
+    HandoverRequestAck,
+    HandoverPreparationFail,
+}

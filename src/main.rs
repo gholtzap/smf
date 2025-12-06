@@ -62,6 +62,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .route("/nnrf-nfm/v1/nf-status-notify", post(handlers::nrf_notification::handle_nf_status_notification))
+        .route("/namf-callback/v1/ue-contexts/:ueId/n1-n2-transfers/:transactionId/notify", post(handlers::amf_callback::handle_n1n2_transfer_status))
+        .route("/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify", post(handlers::amf_callback::handle_n2_info_notify))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
