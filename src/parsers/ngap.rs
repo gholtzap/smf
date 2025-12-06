@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use crate::types::ngap::GtpTunnel;
 
 pub struct PerDecoder {
     data: Vec<u8>,
@@ -294,6 +295,37 @@ impl NgapParser {
 
     pub fn extract_all_ies(&self, pdu: &NgapPdu) -> Vec<InformationElement> {
         pdu.information_elements.clone()
+    }
+
+    pub fn extract_gtp_tunnel(&self, pdu: &NgapPdu) -> Result<Option<GtpTunnel>> {
+        let ie = self.extract_ie(pdu, ie_ids::GTP_TUNNEL)?;
+
+        if let Some(ie) = ie {
+            tracing::debug!("Decoding GTP Tunnel IE ({} bytes)", ie.value.len());
+
+            let mut decoder = PerDecoder::new(&ie.value);
+
+            let extension_present = decoder.read_bits(1)? == 1;
+            tracing::debug!("GTP Tunnel extension present: {}", extension_present);
+
+            let transport_layer_address = decoder.read_bit_string()?;
+            tracing::debug!("Transport layer address: {} bytes", transport_layer_address.len());
+
+            let gtp_teid = decoder.read_octet_string()?;
+            tracing::debug!("GTP TEID: {} bytes", gtp_teid.len());
+
+            if gtp_teid.len() != 4 {
+                return Err(anyhow!("Invalid GTP TEID length: expected 4 bytes, got {}", gtp_teid.len()));
+            }
+
+            Ok(Some(GtpTunnel {
+                transport_layer_address,
+                gtp_teid,
+            }))
+        } else {
+            tracing::debug!("GTP Tunnel IE not found in PDU");
+            Ok(None)
+        }
     }
 }
 
@@ -638,5 +670,110 @@ mod tests {
         assert_eq!(all_ies.len(), 2);
         assert_eq!(all_ies[0].id, 10);
         assert_eq!(all_ies[1].id, 85);
+    }
+
+    #[test]
+    fn test_extract_gtp_tunnel_ipv4() {
+        let parser = NgapParser::new();
+
+        let mut gtp_tunnel_data = Vec::new();
+        gtp_tunnel_data.push(0x10);
+        gtp_tunnel_data.push(0x60);
+        gtp_tunnel_data.push(0x54);
+        gtp_tunnel_data.push(0x00);
+        gtp_tunnel_data.push(0x85);
+        gtp_tunnel_data.push(0x02);
+        gtp_tunnel_data.push(0x00);
+
+        gtp_tunnel_data.push(0x12);
+        gtp_tunnel_data.push(0x34);
+        gtp_tunnel_data.push(0x56);
+        gtp_tunnel_data.push(0x78);
+
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00]),
+            pdu_type: PduType::SuccessfulOutcome,
+            procedure_code: 1,
+            criticality: IeCriticality::Reject,
+            information_elements: vec![
+                InformationElement {
+                    id: ie_ids::GTP_TUNNEL,
+                    criticality: IeCriticality::Reject,
+                    value: Bytes::from(gtp_tunnel_data),
+                },
+            ],
+        };
+
+        let result = parser.extract_gtp_tunnel(&pdu);
+        if let Err(e) = &result {
+            eprintln!("Error: {:?}", e);
+        }
+        assert!(result.is_ok());
+
+        let gtp_tunnel = result.unwrap();
+        assert!(gtp_tunnel.is_some());
+
+        let tunnel = gtp_tunnel.unwrap();
+        assert_eq!(tunnel.transport_layer_address.len(), 4);
+        assert_eq!(tunnel.gtp_teid.len(), 4);
+
+        let ip = tunnel.get_ip_address();
+        assert!(ip.is_some());
+        assert_eq!(ip.unwrap(), "192.168.1.10");
+
+        let teid = tunnel.get_teid();
+        assert!(teid.is_some());
+        assert_eq!(teid.unwrap(), 0x12345678);
+    }
+
+    #[test]
+    fn test_extract_gtp_tunnel_not_found() {
+        let parser = NgapParser::new();
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00]),
+            pdu_type: PduType::InitiatingMessage,
+            procedure_code: 0,
+            criticality: IeCriticality::Reject,
+            information_elements: vec![],
+        };
+
+        let result = parser.extract_gtp_tunnel(&pdu);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extract_gtp_tunnel_invalid_teid_length() {
+        let parser = NgapParser::new();
+
+        let mut gtp_tunnel_data = Vec::new();
+        gtp_tunnel_data.push(0x10);
+        gtp_tunnel_data.push(0x60);
+        gtp_tunnel_data.push(0x54);
+        gtp_tunnel_data.push(0x00);
+        gtp_tunnel_data.push(0x85);
+        gtp_tunnel_data.push(0x01);
+        gtp_tunnel_data.push(0x80);
+
+        gtp_tunnel_data.push(0x12);
+        gtp_tunnel_data.push(0x34);
+        gtp_tunnel_data.push(0x56);
+
+        let pdu = NgapPdu {
+            raw_data: Bytes::from_static(&[0x00]),
+            pdu_type: PduType::SuccessfulOutcome,
+            procedure_code: 1,
+            criticality: IeCriticality::Reject,
+            information_elements: vec![
+                InformationElement {
+                    id: ie_ids::GTP_TUNNEL,
+                    criticality: IeCriticality::Reject,
+                    value: Bytes::from(gtp_tunnel_data),
+                },
+            ],
+        };
+
+        let result = parser.extract_gtp_tunnel(&pdu);
+        assert!(result.is_err());
     }
 }

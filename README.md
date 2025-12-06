@@ -459,6 +459,7 @@ The server will start on `http://localhost:8080` by default.
   - IE value decoding utilities (integer, octet string, bit string, enumerated types)
   - PDU type enumeration and conversion
   - Extension flag handling for future NGAP protocol versions
+  - GTP Tunnel IE extraction with transport layer address and TEID decoding
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -482,7 +483,6 @@ The server will start on `http://localhost:8080` by default.
         - Path Switch Request IE extraction
         - QoS Flow Level QoS Parameters IE extraction
         - User Location Information IE extraction
-        - GTP Tunnel IE extraction
         - Integration of NGAP parsers with handover notify handler
         - Integration of NGAP parsers with path switch handler
     - Handover resource allocation coordination with target gNB
