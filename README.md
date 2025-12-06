@@ -437,6 +437,18 @@ The server will start on `http://localhost:8080` by default.
   - User Location Information IE
   - GTP Tunnel IE
   - QoS Flow Setup Request/Response IEs
+- ASN.1 PER (Packed Encoding Rules) basic decoding utilities
+  - Bit-level reading with position tracking
+  - Byte-aligned reading operations
+  - Length determinant decoding (short, medium, and long forms)
+  - Constrained integer decoding with min/max ranges
+  - Unconstrained integer decoding with variable length
+  - Enumerated type decoding
+  - Octet string decoding with length prefix
+  - Bit string decoding with length prefix
+  - Byte alignment operations for PER constraints
+  - Peek operations for lookahead parsing
+  - Remaining bytes tracking for parser state
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -457,7 +469,6 @@ The server will start on `http://localhost:8080` by default.
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
         - NGAP container parsing and decoding utilities (broken down below)
-          - ASN.1 PER (Packed Encoding Rules) basic decoding utilities
           - NGAP PDU structure parser
           - NGAP IE (Information Element) header parsing
           - NGAP IE value extraction framework
