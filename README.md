@@ -460,6 +460,13 @@ The server will start on `http://localhost:8080` by default.
   - PDU type enumeration and conversion
   - Extension flag handling for future NGAP protocol versions
   - GTP Tunnel IE extraction with transport layer address and TEID decoding
+  - PDU Session Resource Setup Response Transfer IE extraction and decoding
+    - QoS Flow Per TNL Information decoding with GTP tunnel and associated QoS flows
+    - Associated QoS Flow Item decoding with flow identifier and mapping indication
+    - Security Result decoding with integrity and confidentiality protection results
+    - QoS Flow With Cause Item decoding for failed QoS flow setup handling
+    - NGAP Cause decoding with all cause categories (RadioNetwork, Transport, NAS, Protocol, Misc)
+    - Support for optional fields (additional DL QoS flows, security result, failed setup list)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -479,7 +486,6 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
-        - PDU Session Resource Setup Response IE extraction
         - Path Switch Request IE extraction
         - QoS Flow Level QoS Parameters IE extraction
         - User Location Information IE extraction

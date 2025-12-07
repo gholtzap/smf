@@ -1,6 +1,11 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use crate::types::ngap::GtpTunnel;
+use crate::types::ngap::{
+    AssociatedQosFlowItem, ConfidentialityProtectionResult, GtpTunnel,
+    IntegrityProtectionResult, PduSessionResourceSetupResponseTransfer, QosFlowMappingIndication,
+    QosFlowPerTnlInformation, QosFlowWithCauseItem, SecurityResult, NgapCause, RadioNetworkCause,
+    TransportCause, NasCause, ProtocolCause, MiscCause,
+};
 
 pub struct PerDecoder {
     data: Vec<u8>,
@@ -326,6 +331,377 @@ impl NgapParser {
             tracing::debug!("GTP Tunnel IE not found in PDU");
             Ok(None)
         }
+    }
+
+    pub fn decode_gtp_tunnel(&self, data: &[u8]) -> Result<GtpTunnel> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("GTP Tunnel extension present: {}", extension_present);
+
+        let transport_layer_address = decoder.read_bit_string()?;
+        tracing::debug!("Transport layer address: {} bytes", transport_layer_address.len());
+
+        let gtp_teid = decoder.read_octet_string()?;
+        tracing::debug!("GTP TEID: {} bytes", gtp_teid.len());
+
+        if gtp_teid.len() != 4 {
+            return Err(anyhow!("Invalid GTP TEID length: expected 4 bytes, got {}", gtp_teid.len()));
+        }
+
+        Ok(GtpTunnel {
+            transport_layer_address,
+            gtp_teid,
+        })
+    }
+
+    pub fn decode_security_result(&self, data: &[u8]) -> Result<SecurityResult> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("SecurityResult extension present: {}", extension_present);
+
+        let integrity_protection_result = decoder.read_enumerated(1)?;
+        let confidentiality_protection_result = decoder.read_enumerated(1)?;
+
+        Ok(SecurityResult {
+            integrity_protection_result: match integrity_protection_result {
+                0 => IntegrityProtectionResult::Performed,
+                1 => IntegrityProtectionResult::NotPerformed,
+                _ => return Err(anyhow!("Invalid integrity protection result: {}", integrity_protection_result)),
+            },
+            confidentiality_protection_result: match confidentiality_protection_result {
+                0 => ConfidentialityProtectionResult::Performed,
+                1 => ConfidentialityProtectionResult::NotPerformed,
+                _ => return Err(anyhow!("Invalid confidentiality protection result: {}", confidentiality_protection_result)),
+            },
+        })
+    }
+
+    pub fn decode_ngap_cause(&self, data: &[u8]) -> Result<NgapCause> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("NgapCause extension present: {}", extension_present);
+
+        let cause_type = decoder.read_enumerated(4)?;
+
+        match cause_type {
+            0 => {
+                let radio_network_cause = decoder.read_enumerated(45)?;
+                Ok(NgapCause::RadioNetwork(match radio_network_cause {
+                    0 => RadioNetworkCause::UnspecifiedRadioNetworkCause,
+                    1 => RadioNetworkCause::TxnrelocoverallExpiry,
+                    2 => RadioNetworkCause::SuccessfulHandover,
+                    3 => RadioNetworkCause::ReleaseDueToNgranGeneratedReason,
+                    4 => RadioNetworkCause::ReleaseDueToFiveGcGeneratedReason,
+                    5 => RadioNetworkCause::HandoverCancelled,
+                    6 => RadioNetworkCause::PartialHandover,
+                    7 => RadioNetworkCause::HoFailureInTarget5GCNgranNode,
+                    8 => RadioNetworkCause::HoTargetNotAllowed,
+                    9 => RadioNetworkCause::TngrelocoverallExpiry,
+                    10 => RadioNetworkCause::TngrelocprepExpiry,
+                    11 => RadioNetworkCause::CellNotAvailable,
+                    12 => RadioNetworkCause::UnknownTargetId,
+                    13 => RadioNetworkCause::NoRadioResourcesAvailableInTargetCell,
+                    14 => RadioNetworkCause::UnknownLocalUeNgapId,
+                    15 => RadioNetworkCause::InconsistentRemoteUeNgapId,
+                    16 => RadioNetworkCause::HandoverDesirableForRadioReason,
+                    17 => RadioNetworkCause::TimeCriticalHandover,
+                    18 => RadioNetworkCause::ResourceOptimisationHandover,
+                    19 => RadioNetworkCause::ReduceLoadInServingCell,
+                    20 => RadioNetworkCause::UserInactivity,
+                    21 => RadioNetworkCause::RadioConnectionWithUeLost,
+                    22 => RadioNetworkCause::RadioResourcesNotAvailable,
+                    23 => RadioNetworkCause::InvalidQosCombination,
+                    24 => RadioNetworkCause::FailureInRadioInterfaceProcedure,
+                    25 => RadioNetworkCause::InteractionWithOtherProcedure,
+                    26 => RadioNetworkCause::UnknownPduSessionId,
+                    27 => RadioNetworkCause::UeRrcConnectionReestablishmentFailure,
+                    28 => RadioNetworkCause::MultipleSessionsNotSupported,
+                    29 => RadioNetworkCause::UeContextReestFailure,
+                    30 => RadioNetworkCause::NgIntraSystemHandoverTriggered,
+                    31 => RadioNetworkCause::NgInterSystemHandoverTriggered,
+                    32 => RadioNetworkCause::XnHandoverTriggered,
+                    33 => RadioNetworkCause::NotSupported5qiValue,
+                    _ => RadioNetworkCause::UnspecifiedRadioNetworkCause,
+                }))
+            }
+            1 => {
+                let transport_cause = decoder.read_enumerated(1)?;
+                Ok(NgapCause::Transport(match transport_cause {
+                    0 => TransportCause::TransportResourceUnavailable,
+                    1 => TransportCause::UnspecifiedTransportCause,
+                    _ => TransportCause::UnspecifiedTransportCause,
+                }))
+            }
+            2 => {
+                let nas_cause = decoder.read_enumerated(3)?;
+                Ok(NgapCause::Nas(match nas_cause {
+                    0 => NasCause::NormalRelease,
+                    1 => NasCause::AuthenticationFailure,
+                    2 => NasCause::Deregister,
+                    3 => NasCause::UnspecifiedNasCause,
+                    _ => NasCause::UnspecifiedNasCause,
+                }))
+            }
+            3 => {
+                let protocol_cause = decoder.read_enumerated(6)?;
+                Ok(NgapCause::Protocol(match protocol_cause {
+                    0 => ProtocolCause::TransferSyntaxError,
+                    1 => ProtocolCause::AbstractSyntaxErrorReject,
+                    2 => ProtocolCause::AbstractSyntaxErrorIgnoreAndNotify,
+                    3 => ProtocolCause::MessageNotCompatibleWithReceiverState,
+                    4 => ProtocolCause::SemanticError,
+                    5 => ProtocolCause::AbstractSyntaxErrorFalselyConstructedMessage,
+                    6 => ProtocolCause::UnspecifiedProtocolCause,
+                    _ => ProtocolCause::UnspecifiedProtocolCause,
+                }))
+            }
+            4 => {
+                let misc_cause = decoder.read_enumerated(5)?;
+                Ok(NgapCause::Misc(match misc_cause {
+                    0 => MiscCause::ControlProcessingOverload,
+                    1 => MiscCause::NotEnoughUserPlaneProcessingResources,
+                    2 => MiscCause::HardwareFailure,
+                    3 => MiscCause::OmIntervention,
+                    4 => MiscCause::UnknownPlmn,
+                    5 => MiscCause::UnspecifiedMiscCause,
+                    _ => MiscCause::UnspecifiedMiscCause,
+                }))
+            }
+            _ => Err(anyhow!("Invalid NGAP cause type: {}", cause_type)),
+        }
+    }
+
+    pub fn decode_qos_flow_with_cause_item(&self, data: &[u8]) -> Result<QosFlowWithCauseItem> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("QosFlowWithCauseItem extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("QosFlowWithCauseItem IE count: {}", ie_count);
+
+        let mut qos_flow_identifier = None;
+        let mut cause = None;
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    qos_flow_identifier = Some(ie_decoder.read_constrained_integer(0, 63)? as u8);
+                }
+                1 => {
+                    cause = Some(self.decode_ngap_cause(&ie_value_data)?);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in QosFlowWithCauseItem: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(QosFlowWithCauseItem {
+            qos_flow_identifier: qos_flow_identifier.ok_or_else(|| anyhow!("Missing QoS flow identifier"))?,
+            cause: cause.ok_or_else(|| anyhow!("Missing cause"))?,
+        })
+    }
+
+    pub fn decode_associated_qos_flow_item(&self, data: &[u8]) -> Result<AssociatedQosFlowItem> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("AssociatedQosFlowItem extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(1)?;
+        let qos_flow_mapping_indication_present = optional_fields_bitmap == 1;
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("AssociatedQosFlowItem IE count: {}", ie_count);
+
+        let mut qos_flow_identifier = None;
+        let mut qos_flow_mapping_indication = None;
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    qos_flow_identifier = Some(ie_decoder.read_constrained_integer(0, 63)? as u8);
+                }
+                1 if qos_flow_mapping_indication_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let mapping = ie_decoder.read_enumerated(1)?;
+                    qos_flow_mapping_indication = Some(match mapping {
+                        0 => QosFlowMappingIndication::Ul,
+                        1 => QosFlowMappingIndication::Dl,
+                        _ => return Err(anyhow!("Invalid QoS flow mapping indication: {}", mapping)),
+                    });
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in AssociatedQosFlowItem: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(AssociatedQosFlowItem {
+            qos_flow_identifier: qos_flow_identifier.ok_or_else(|| anyhow!("Missing QoS flow identifier"))?,
+            qos_flow_mapping_indication,
+        })
+    }
+
+    pub fn decode_qos_flow_per_tnl_information(&self, data: &[u8]) -> Result<QosFlowPerTnlInformation> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("QosFlowPerTnlInformation extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("QosFlowPerTnlInformation IE count: {}", ie_count);
+
+        let mut up_transport_layer_information = None;
+        let mut associated_qos_flow_list = Vec::new();
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    up_transport_layer_information = Some(self.decode_gtp_tunnel(&ie_value_data)?);
+                }
+                1 => {
+                    let mut list_decoder = PerDecoder::new(&ie_value_data);
+                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
+
+                    for _ in 0..list_count {
+                        list_decoder.align_to_byte();
+                        let item_length = list_decoder.read_length_determinant()?;
+                        let item_data = list_decoder.read_bytes(item_length)?;
+                        associated_qos_flow_list.push(self.decode_associated_qos_flow_item(&item_data)?);
+                    }
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in QosFlowPerTnlInformation: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(QosFlowPerTnlInformation {
+            up_transport_layer_information: up_transport_layer_information
+                .ok_or_else(|| anyhow!("Missing UP transport layer information"))?,
+            associated_qos_flow_list,
+        })
+    }
+
+    pub fn decode_pdu_session_resource_setup_response_transfer(&self, data: &[u8]) -> Result<PduSessionResourceSetupResponseTransfer> {
+        let mut decoder = PerDecoder::new(data);
+
+        tracing::debug!("Decoding PDU Session Resource Setup Response Transfer ({} bytes)", data.len());
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(3)?;
+        let additional_dl_qos_flow_per_tnl_information_present = (optional_fields_bitmap & 0x4) != 0;
+        let security_result_present = (optional_fields_bitmap & 0x2) != 0;
+        let qos_flow_failed_to_setup_list_present = (optional_fields_bitmap & 0x1) != 0;
+
+        tracing::debug!("Optional fields - additional_dl: {}, security: {}, failed: {}",
+            additional_dl_qos_flow_per_tnl_information_present,
+            security_result_present,
+            qos_flow_failed_to_setup_list_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("IE count: {}", ie_count);
+
+        let mut dl_qos_flow_per_tnl_information = None;
+        let mut additional_dl_qos_flow_per_tnl_information = None;
+        let mut security_result = None;
+        let mut qos_flow_failed_to_setup_list = None;
+
+        for i in 0..ie_count {
+            tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
+
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            tracing::debug!("  IE ID: {}, length: {} bytes", ie_id, ie_value_length);
+
+            match ie_id {
+                0 => {
+                    dl_qos_flow_per_tnl_information = Some(self.decode_qos_flow_per_tnl_information(&ie_value_data)?);
+                }
+                1 if additional_dl_qos_flow_per_tnl_information_present => {
+                    let mut list_decoder = PerDecoder::new(&ie_value_data);
+                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let list_count = list_decoder.read_constrained_integer(1, 3)? as usize;
+
+                    let mut additional_list = Vec::new();
+                    for _ in 0..list_count {
+                        list_decoder.align_to_byte();
+                        let item_length = list_decoder.read_length_determinant()?;
+                        let item_data = list_decoder.read_bytes(item_length)?;
+                        additional_list.push(self.decode_qos_flow_per_tnl_information(&item_data)?);
+                    }
+                    additional_dl_qos_flow_per_tnl_information = Some(additional_list);
+                }
+                2 if security_result_present => {
+                    security_result = Some(self.decode_security_result(&ie_value_data)?);
+                }
+                3 if qos_flow_failed_to_setup_list_present => {
+                    let mut list_decoder = PerDecoder::new(&ie_value_data);
+                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
+
+                    let mut failed_list = Vec::new();
+                    for _ in 0..list_count {
+                        list_decoder.align_to_byte();
+                        let item_length = list_decoder.read_length_determinant()?;
+                        let item_data = list_decoder.read_bytes(item_length)?;
+                        failed_list.push(self.decode_qos_flow_with_cause_item(&item_data)?);
+                    }
+                    qos_flow_failed_to_setup_list = Some(failed_list);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in PduSessionResourceSetupResponseTransfer: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(PduSessionResourceSetupResponseTransfer {
+            dl_qos_flow_per_tnl_information: dl_qos_flow_per_tnl_information
+                .ok_or_else(|| anyhow!("Missing DL QoS flow per TNL information"))?,
+            additional_dl_qos_flow_per_tnl_information,
+            security_result,
+            qos_flow_failed_to_setup_list,
+        })
+    }
+
+    pub fn extract_pdu_session_resource_setup_response_transfer(&self, ie_value: &[u8]) -> Result<PduSessionResourceSetupResponseTransfer> {
+        self.decode_pdu_session_resource_setup_response_transfer(ie_value)
     }
 }
 
