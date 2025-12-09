@@ -19,6 +19,7 @@ pub mod pcf;
 pub mod ssc_selector;
 pub mod ssc_behavior;
 pub mod ssc_mode2;
+pub mod ssc_mode3;
 pub mod handover;
 pub mod udr;
 pub mod chf;

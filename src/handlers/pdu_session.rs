@@ -15,6 +15,7 @@ use crate::services::qos_flow::QosFlowManager;
 use crate::services::handover::HandoverService;
 use crate::services::ssc_behavior::SscBehaviorService;
 use crate::services::ssc_mode2::SscMode2Service;
+use crate::services::ssc_mode3::SscMode3Service;
 use crate::services::emergency::EmergencyService;
 use std::sync::Arc;
 
@@ -695,6 +696,35 @@ async fn handle_path_switch(
             "pdu_address",
             mongodb::bson::to_bson(&new_pdu_address).unwrap()
         );
+    } else if sm_context.ssc_mode == SscMode::Mode3 {
+        tracing::info!(
+            "SSC Mode 3 path switch: Make-before-break for SUPI: {}, PDU Session ID: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id
+        );
+
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let (new_pdu_address, _old_address) = SscMode3Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        tracing::info!(
+            "SSC Mode 3 path switch completed: New address allocated (make-before-break) for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+            sm_context.supi,
+            new_pdu_address.ipv4_addr,
+            new_pdu_address.ipv6_addr
+        );
+
+        update_doc.get_document_mut("$set").unwrap().insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address).unwrap()
+        );
     }
 
     if let Some(ref ue_location) = payload.ue_location {
@@ -1335,6 +1365,35 @@ pub async fn handle_handover_notify(
 
             tracing::info!(
                 "SSC Mode 2 handover completed: New address allocated for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+                sm_context.supi,
+                new_pdu_address.ipv4_addr,
+                new_pdu_address.ipv6_addr
+            );
+
+            update_doc.insert(
+                "pdu_address",
+                mongodb::bson::to_bson(&new_pdu_address).unwrap(),
+            );
+        } else if sm_context.ssc_mode == SscMode::Mode3 {
+            tracing::info!(
+                "SSC Mode 3 handover: Make-before-break for SUPI: {}, PDU Session ID: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+
+            let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+                .map_err(AppError::ValidationError)?;
+
+            let mut mutable_context = sm_context.clone();
+            let (new_pdu_address, _old_address) = SscMode3Service::handle_mobility_event(
+                &mut mutable_context,
+                &state.db,
+                state.pfcp_client.as_ref(),
+                &dnn_config.ip_pool_name,
+            ).await.map_err(AppError::ValidationError)?;
+
+            tracing::info!(
+                "SSC Mode 3 handover completed: New address allocated (make-before-break) for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
                 sm_context.supi,
                 new_pdu_address.ipv4_addr,
                 new_pdu_address.ipv6_addr

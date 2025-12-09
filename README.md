@@ -236,6 +236,16 @@ The server will start on `http://localhost:8080` by default.
   - Integration with N2-based handover procedures
   - Automatic DNS configuration for new sessions
   - SSC mode 2 logging and monitoring throughout mobility lifecycle
+- SSC mode 3 behavior implementation
+  - Make-before-break session establishment logic during mobility events
+  - New IP address allocation before releasing old address
+  - Support for IPv4, IPv6, and dual-stack address reallocation
+  - Integration with path switch (Xn-based handover) procedures
+  - Integration with N2-based handover procedures
+  - Automatic DNS configuration for new sessions
+  - Old PFCP session cleanup after new session establishment
+  - SSC mode 3 logging and monitoring throughout mobility lifecycle
+  - Seamless connectivity during handover with minimal packet loss
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -531,8 +541,6 @@ The server will start on `http://localhost:8080` by default.
   - UPF relocation and selection during handover
   - QoS flow mapping and continuity during handover
   - Session AMBR enforcement during handover
-- Service and Session Continuity (SSC) mode behavior:
-  - SSC mode 3: Make-before-break session establishment logic
 
 ### Security
 - Service-based interface security:
