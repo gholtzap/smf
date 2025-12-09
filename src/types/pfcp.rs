@@ -11,6 +11,7 @@ pub struct PfcpSessionEstablishmentRequest {
     pub create_urr: Option<Vec<CreateUrr>>,
     pub pdn_type: Option<PdnType>,
     pub user_plane_inactivity_timer: Option<u32>,
+    pub up_security_parameters: Option<UpSecurityParameters>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +44,7 @@ pub struct PfcpSessionModificationRequest {
     pub query_urr: Option<Vec<QueryUrr>>,
     pub pfcp_session_retention_information: Option<PfcpSessionRetentionInformation>,
     pub user_plane_inactivity_timer: Option<u32>,
+    pub up_security_parameters: Option<UpSecurityParameters>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -637,4 +639,14 @@ pub enum PdnType {
     Ipv4v6,
     NonIp,
     Ethernet,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpSecurityParameters {
+    pub integrity_protection_algorithm: Option<u8>,
+    pub ciphering_algorithm: Option<u8>,
+    pub integrity_protection_activated: bool,
+    pub confidentiality_protection_activated: bool,
+    pub maximum_integrity_protected_data_rate_ul: Option<u64>,
+    pub maximum_integrity_protected_data_rate_dl: Option<u64>,
 }

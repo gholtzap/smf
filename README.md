@@ -416,6 +416,16 @@ The server will start on `http://localhost:8080` by default.
     - Emergency session security policy (low security for priority connectivity)
     - Policy validation ensuring required algorithms are available
     - Configurable algorithm preference order for optimal security
+  - Integration with PFCP for UP security enforcement (security parameters in session establishment/modification)
+    - UpSecurityParameters data model for PFCP messages (integrity/ciphering algorithms, activation flags, maximum data rates)
+    - UP security parameter inclusion in PFCP Session Establishment Request
+    - UP security parameter inclusion in PFCP Session Modification Request
+    - Automatic conversion from UpSecurityContext to PFCP UpSecurityParameters
+    - Security algorithm encoding to u8 values for PFCP protocol
+    - Maximum integrity protected data rate conversion to kbps for PFCP
+    - Integration with PDU session create handler for UP security enforcement
+    - Integration with PDU session modify handler for UP security updates
+    - Integration with handover procedures for UP security continuity
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -565,7 +575,6 @@ The server will start on `http://localhost:8080` by default.
   - Mutual TLS (mTLS) support
 - User plane encryption and integrity protection:
   - UP security capability negotiation with UE via AMF N1N2 messages
-  - Integration with PFCP for UP security enforcement (security parameters in session establishment/modification)
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control

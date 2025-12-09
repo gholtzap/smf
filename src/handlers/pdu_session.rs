@@ -462,6 +462,7 @@ pub async fn create_pdu_session(
                 ue_ipv4_addr,
                 upf_ipv4,
                 &sm_context.qos_flows,
+                sm_context.up_security_context.as_ref(),
             ).await {
             Ok(_) => {
                 sm_context.pfcp_session_id = Some(seid);
@@ -661,6 +662,7 @@ async fn handle_path_switch(
             seid,
             an_ipv4,
             &an_tunnel_info.gtp_teid,
+            sm_context.up_security_context.as_ref(),
         ).await {
             Ok(_) => {
                 tracing::info!(
@@ -878,7 +880,7 @@ pub async fn update_pdu_session(
         let add_flows_opt = if !add_qos_flows.is_empty() { Some(add_qos_flows.as_slice()) } else { None };
         let remove_qfis_opt = if !remove_qfis.is_empty() { Some(remove_qfis.as_slice()) } else { None };
 
-        match PfcpSessionManager::modify_session(pfcp_client, seid, None, add_flows_opt, remove_qfis_opt).await {
+        match PfcpSessionManager::modify_session(pfcp_client, seid, None, add_flows_opt, remove_qfis_opt, sm_context.up_security_context.as_ref()).await {
             Ok(_) => {
                 tracing::info!(
                     "PFCP Session modified for SUPI: {}, SEID: {}, State: ModificationPending -> Active",
@@ -1464,6 +1466,7 @@ pub async fn handle_handover_notify(
                             pfcp_session_id,
                             an_ipv4,
                             &an_tunnel_info.gtp_teid,
+                            sm_context.up_security_context.as_ref(),
                         ).await {
                             tracing::error!("Failed to modify PFCP session: {}", e);
                         }

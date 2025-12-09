@@ -1,6 +1,7 @@
 use crate::services::pfcp::{PfcpClient, PfcpClientInner};
 use crate::types::pfcp::*;
 use crate::types::{QosFlow, QosFlowType};
+use crate::types::up_security::UpSecurityContext;
 use anyhow::{anyhow, Result};
 use std::net::Ipv4Addr;
 use tracing::{info, warn};
@@ -8,6 +9,25 @@ use tracing::{info, warn};
 pub struct PfcpSessionManager;
 
 impl PfcpSessionManager {
+    fn convert_up_security_to_pfcp(up_security: &UpSecurityContext) -> UpSecurityParameters {
+        UpSecurityParameters {
+            integrity_protection_algorithm: up_security.integrity_protection_algorithm
+                .as_ref()
+                .map(|alg| alg.to_u8()),
+            ciphering_algorithm: up_security.ciphering_algorithm
+                .as_ref()
+                .map(|alg| alg.to_u8()),
+            integrity_protection_activated: up_security.integrity_protection_activated,
+            confidentiality_protection_activated: up_security.confidentiality_protection_activated,
+            maximum_integrity_protected_data_rate_ul: up_security.maximum_integrity_protected_data_rate_ul
+                .as_ref()
+                .and_then(|rate| rate.to_kbps()),
+            maximum_integrity_protected_data_rate_dl: up_security.maximum_integrity_protected_data_rate_dl
+                .as_ref()
+                .and_then(|rate| rate.to_kbps()),
+        }
+    }
+
     fn create_qer_from_qos_flow(qos_flow: &QosFlow) -> CreateQer {
         let (gbr, mbr) = match &qos_flow.qos_flow_type {
             QosFlowType::GBR | QosFlowType::DelayGBR => {
@@ -46,6 +66,7 @@ impl PfcpSessionManager {
         ue_ipv4: Ipv4Addr,
         upf_ipv4: Ipv4Addr,
         qos_flows: &[QosFlow],
+        up_security: Option<&UpSecurityContext>,
     ) -> Result<PfcpSessionEstablishmentResponse> {
         let node_id = NodeId {
             node_id_type: NodeIdType::Ipv4Address,
@@ -196,6 +217,8 @@ impl PfcpSessionManager {
             None
         };
 
+        let up_security_parameters = up_security.map(|sec| Self::convert_up_security_to_pfcp(sec));
+
         let request = PfcpSessionEstablishmentRequest {
             node_id,
             f_seid,
@@ -205,6 +228,7 @@ impl PfcpSessionManager {
             create_urr: None,
             pdn_type: Some(PdnType::Ipv4),
             user_plane_inactivity_timer: Some(300),
+            up_security_parameters,
         };
 
         pfcp_client.send_session_establishment_request(seid, &request).await?;
@@ -235,6 +259,7 @@ impl PfcpSessionManager {
         ue_ipv4: Option<Ipv4Addr>,
         add_qos_flows: Option<&[QosFlow]>,
         remove_qfis: Option<&[u8]>,
+        up_security: Option<&UpSecurityContext>,
     ) -> Result<PfcpSessionModificationResponse> {
         let mut request = PfcpSessionModificationRequest {
             f_seid: None,
@@ -253,6 +278,7 @@ impl PfcpSessionManager {
             query_urr: None,
             pfcp_session_retention_information: None,
             user_plane_inactivity_timer: Some(300),
+            up_security_parameters: up_security.map(|sec| Self::convert_up_security_to_pfcp(sec)),
         };
 
         if let Some(new_ip) = ue_ipv4 {
@@ -326,6 +352,7 @@ impl PfcpSessionManager {
         seid: u64,
         new_an_ipv4: Ipv4Addr,
         new_an_teid: &str,
+        up_security: Option<&UpSecurityContext>,
     ) -> Result<PfcpSessionModificationResponse> {
         let teid = u32::from_str_radix(new_an_teid, 16)
             .map_err(|e| anyhow!("Invalid TEID format: {}", e))?;
@@ -379,6 +406,7 @@ impl PfcpSessionManager {
             query_urr: None,
             pfcp_session_retention_information: None,
             user_plane_inactivity_timer: Some(300),
+            up_security_parameters: up_security.map(|sec| Self::convert_up_security_to_pfcp(sec)),
         };
 
         pfcp_client.send_session_modification_request(seid, &request).await?;
