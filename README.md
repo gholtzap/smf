@@ -227,6 +227,15 @@ The server will start on `http://localhost:8080` by default.
   - Automatic IP release only on PDU session termination (not during mobility)
   - SSC mode 1 logging and monitoring throughout session lifecycle
   - Integration with handover procedures (Xn-based and N2-based)
+- SSC mode 2 behavior implementation
+  - Session release and re-establishment during mobility events
+  - Old IP address and PFCP session release during handover
+  - New IP address allocation for re-established session
+  - Support for IPv4, IPv6, and dual-stack address reallocation
+  - Integration with path switch (Xn-based handover) procedures
+  - Integration with N2-based handover procedures
+  - Automatic DNS configuration for new sessions
+  - SSC mode 2 logging and monitoring throughout mobility lifecycle
 
 ### Session Management
 - Session state transitions with proper state machine (Idle, ActivePending, Active, InactivePending, Inactive, ModificationPending)
@@ -515,7 +524,6 @@ The server will start on `http://localhost:8080` by default.
   - QoS flow mapping and continuity during handover
   - Session AMBR enforcement during handover
 - Service and Session Continuity (SSC) mode behavior:
-  - SSC mode 2: Session release and re-establishment logic
   - SSC mode 3: Make-before-break session establishment logic
 
 ### Security

@@ -14,6 +14,7 @@ use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
 use crate::services::handover::HandoverService;
 use crate::services::ssc_behavior::SscBehaviorService;
+use crate::services::ssc_mode2::SscMode2Service;
 use crate::services::emergency::EmergencyService;
 use std::sync::Arc;
 
@@ -564,6 +565,11 @@ async fn handle_path_switch(
             "SSC Mode 1 path switch: IP address will be preserved for SUPI: {}",
             sm_context.supi
         );
+    } else if sm_context.ssc_mode == SscMode::Mode2 {
+        tracing::info!(
+            "SSC Mode 2 path switch: Will release and re-establish session for SUPI: {}",
+            sm_context.supi
+        );
     }
 
     tracing::info!(
@@ -659,6 +665,37 @@ async fn handle_path_switch(
             "updated_at": mongodb::bson::DateTime::now()
         }
     };
+
+    if sm_context.ssc_mode == SscMode::Mode2 {
+        tracing::info!(
+            "SSC Mode 2 path switch: Releasing old session and establishing new session for SUPI: {}, PDU Session ID: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id
+        );
+
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let new_pdu_address = SscMode2Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        tracing::info!(
+            "SSC Mode 2 path switch completed: New address allocated for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+            sm_context.supi,
+            new_pdu_address.ipv4_addr,
+            new_pdu_address.ipv6_addr
+        );
+
+        update_doc.get_document_mut("$set").unwrap().insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address).unwrap()
+        );
+    }
 
     if let Some(ref ue_location) = payload.ue_location {
         update_doc.get_document_mut("$set").unwrap().insert(
@@ -1278,6 +1315,35 @@ pub async fn handle_handover_notify(
                     existing_pdu_addr.ipv6_addr
                 );
             }
+        } else if sm_context.ssc_mode == SscMode::Mode2 {
+            tracing::info!(
+                "SSC Mode 2 handover: Releasing old session and establishing new session for SUPI: {}, PDU Session ID: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+
+            let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+                .map_err(AppError::ValidationError)?;
+
+            let mut mutable_context = sm_context.clone();
+            let new_pdu_address = SscMode2Service::handle_mobility_event(
+                &mut mutable_context,
+                &state.db,
+                state.pfcp_client.as_ref(),
+                &dnn_config.ip_pool_name,
+            ).await.map_err(AppError::ValidationError)?;
+
+            tracing::info!(
+                "SSC Mode 2 handover completed: New address allocated for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+                sm_context.supi,
+                new_pdu_address.ipv4_addr,
+                new_pdu_address.ipv6_addr
+            );
+
+            update_doc.insert(
+                "pdu_address",
+                mongodb::bson::to_bson(&new_pdu_address).unwrap(),
+            );
         }
 
         update_doc.insert(
