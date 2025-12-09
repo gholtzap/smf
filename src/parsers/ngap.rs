@@ -7,7 +7,11 @@ use crate::types::ngap::{
     TransportCause, NasCause, ProtocolCause, MiscCause, PathSwitchRequestTransfer,
     DlNguTnlInformationReused, UserPlaneSecurityInformation, SecurityIndication,
     IntegrityProtectionIndication, ConfidentialityProtectionIndication,
-    MaximumIntegrityProtectedDataRate, QosFlowAcceptedItem,
+    MaximumIntegrityProtectedDataRate, QosFlowAcceptedItem, QosFlowLevelQosParameters,
+    QosCharacteristics, NonDynamic5qiDescriptor, Dynamic5qiDescriptor, PacketErrorRate,
+    AllocationAndRetentionPriority, PreEmptionCapability, PreEmptionVulnerability,
+    GbrQosFlowInformation, NotificationControl, ReflectiveQosAttribute,
+    AdditionalQosFlowInformation,
 };
 
 pub struct PerDecoder {
@@ -947,6 +951,422 @@ impl NgapParser {
     pub fn extract_path_switch_request_transfer(&self, ie_value: &[u8]) -> Result<PathSwitchRequestTransfer> {
         self.decode_path_switch_request_transfer(ie_value)
     }
+
+    pub fn decode_packet_error_rate(&self, data: &[u8]) -> Result<PacketErrorRate> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("PacketErrorRate extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("PacketErrorRate IE count: {}", ie_count);
+
+        let mut per_scalar = None;
+        let mut per_exponent = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    per_scalar = Some(ie_decoder.read_constrained_integer(0, 9)? as u8);
+                }
+                1 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    per_exponent = Some(ie_decoder.read_constrained_integer(0, 9)? as u8);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in PacketErrorRate: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(PacketErrorRate {
+            per_scalar: per_scalar.ok_or_else(|| anyhow!("Missing PER scalar"))?,
+            per_exponent: per_exponent.ok_or_else(|| anyhow!("Missing PER exponent"))?,
+        })
+    }
+
+    pub fn decode_non_dynamic_5qi_descriptor(&self, data: &[u8]) -> Result<NonDynamic5qiDescriptor> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("NonDynamic5qiDescriptor extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(3)?;
+        let priority_level_present = (optional_fields_bitmap & 0x4) != 0;
+        let averaging_window_present = (optional_fields_bitmap & 0x2) != 0;
+        let maximum_data_burst_volume_present = (optional_fields_bitmap & 0x1) != 0;
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("NonDynamic5qiDescriptor IE count: {}", ie_count);
+
+        let mut five_qi = None;
+        let mut priority_level = None;
+        let mut averaging_window = None;
+        let mut maximum_data_burst_volume = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    five_qi = Some(ie_decoder.read_constrained_integer(0, 255)? as u8);
+                }
+                1 if priority_level_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    priority_level = Some(ie_decoder.read_constrained_integer(1, 127)? as u8);
+                }
+                2 if averaging_window_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    averaging_window = Some(ie_decoder.read_constrained_integer(0, 4095)? as u32);
+                }
+                3 if maximum_data_burst_volume_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_data_burst_volume = Some(ie_decoder.read_constrained_integer(0, 4095)? as u32);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in NonDynamic5qiDescriptor: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(NonDynamic5qiDescriptor {
+            five_qi: five_qi.ok_or_else(|| anyhow!("Missing 5QI"))?,
+            priority_level,
+            averaging_window,
+            maximum_data_burst_volume,
+        })
+    }
+
+    pub fn decode_dynamic_5qi_descriptor(&self, data: &[u8]) -> Result<Dynamic5qiDescriptor> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Dynamic5qiDescriptor extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(2)?;
+        let averaging_window_present = (optional_fields_bitmap & 0x2) != 0;
+        let maximum_data_burst_volume_present = (optional_fields_bitmap & 0x1) != 0;
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("Dynamic5qiDescriptor IE count: {}", ie_count);
+
+        let mut priority_level = None;
+        let mut packet_delay_budget = None;
+        let mut packet_error_rate = None;
+        let mut averaging_window = None;
+        let mut maximum_data_burst_volume = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    priority_level = Some(ie_decoder.read_constrained_integer(1, 127)? as u8);
+                }
+                1 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    packet_delay_budget = Some(ie_decoder.read_constrained_integer(0, 1023)? as u32);
+                }
+                2 => {
+                    packet_error_rate = Some(self.decode_packet_error_rate(&ie_value_data)?);
+                }
+                3 if averaging_window_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    averaging_window = Some(ie_decoder.read_constrained_integer(0, 4095)? as u32);
+                }
+                4 if maximum_data_burst_volume_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_data_burst_volume = Some(ie_decoder.read_constrained_integer(0, 4095)? as u32);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in Dynamic5qiDescriptor: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(Dynamic5qiDescriptor {
+            priority_level: priority_level.ok_or_else(|| anyhow!("Missing priority level"))?,
+            packet_delay_budget: packet_delay_budget.ok_or_else(|| anyhow!("Missing packet delay budget"))?,
+            packet_error_rate: packet_error_rate.ok_or_else(|| anyhow!("Missing packet error rate"))?,
+            averaging_window,
+            maximum_data_burst_volume,
+        })
+    }
+
+    pub fn decode_qos_characteristics(&self, data: &[u8]) -> Result<QosCharacteristics> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("QosCharacteristics extension present: {}", extension_present);
+
+        let choice = decoder.read_enumerated(1)?;
+        tracing::debug!("QosCharacteristics choice: {}", choice);
+
+        decoder.align_to_byte();
+        let value_length = decoder.read_length_determinant()?;
+        let value_data = decoder.read_bytes(value_length)?;
+
+        match choice {
+            0 => {
+                let descriptor = self.decode_non_dynamic_5qi_descriptor(&value_data)?;
+                Ok(QosCharacteristics::NonDynamic5qi(descriptor))
+            }
+            1 => {
+                let descriptor = self.decode_dynamic_5qi_descriptor(&value_data)?;
+                Ok(QosCharacteristics::Dynamic5qi(descriptor))
+            }
+            _ => Err(anyhow!("Invalid QoS characteristics choice: {}", choice)),
+        }
+    }
+
+    pub fn decode_allocation_and_retention_priority(&self, data: &[u8]) -> Result<AllocationAndRetentionPriority> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("AllocationAndRetentionPriority extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("AllocationAndRetentionPriority IE count: {}", ie_count);
+
+        let mut priority_level = None;
+        let mut pre_emption_capability = None;
+        let mut pre_emption_vulnerability = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    priority_level = Some(ie_decoder.read_constrained_integer(1, 15)? as u8);
+                }
+                1 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let capability = ie_decoder.read_enumerated(1)?;
+                    pre_emption_capability = Some(match capability {
+                        0 => PreEmptionCapability::ShallNotTriggerPreEmption,
+                        1 => PreEmptionCapability::MayTriggerPreEmption,
+                        _ => return Err(anyhow!("Invalid pre-emption capability: {}", capability)),
+                    });
+                }
+                2 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let vulnerability = ie_decoder.read_enumerated(1)?;
+                    pre_emption_vulnerability = Some(match vulnerability {
+                        0 => PreEmptionVulnerability::NotPreEmptable,
+                        1 => PreEmptionVulnerability::PreEmptable,
+                        _ => return Err(anyhow!("Invalid pre-emption vulnerability: {}", vulnerability)),
+                    });
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in AllocationAndRetentionPriority: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(AllocationAndRetentionPriority {
+            priority_level: priority_level.ok_or_else(|| anyhow!("Missing priority level"))?,
+            pre_emption_capability: pre_emption_capability.ok_or_else(|| anyhow!("Missing pre-emption capability"))?,
+            pre_emption_vulnerability: pre_emption_vulnerability.ok_or_else(|| anyhow!("Missing pre-emption vulnerability"))?,
+        })
+    }
+
+    pub fn decode_gbr_qos_flow_information(&self, data: &[u8]) -> Result<GbrQosFlowInformation> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("GbrQosFlowInformation extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(3)?;
+        let notification_control_present = (optional_fields_bitmap & 0x4) != 0;
+        let maximum_packet_loss_rate_dl_present = (optional_fields_bitmap & 0x2) != 0;
+        let maximum_packet_loss_rate_ul_present = (optional_fields_bitmap & 0x1) != 0;
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("GbrQosFlowInformation IE count: {}", ie_count);
+
+        let mut maximum_flow_bit_rate_dl = None;
+        let mut maximum_flow_bit_rate_ul = None;
+        let mut guaranteed_flow_bit_rate_dl = None;
+        let mut guaranteed_flow_bit_rate_ul = None;
+        let mut notification_control = None;
+        let mut maximum_packet_loss_rate_dl = None;
+        let mut maximum_packet_loss_rate_ul = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_flow_bit_rate_dl = Some(ie_decoder.read_constrained_integer(0, 4000000000000)? as u64);
+                }
+                1 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_flow_bit_rate_ul = Some(ie_decoder.read_constrained_integer(0, 4000000000000)? as u64);
+                }
+                2 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    guaranteed_flow_bit_rate_dl = Some(ie_decoder.read_constrained_integer(0, 4000000000000)? as u64);
+                }
+                3 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    guaranteed_flow_bit_rate_ul = Some(ie_decoder.read_constrained_integer(0, 4000000000000)? as u64);
+                }
+                4 if notification_control_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let control = ie_decoder.read_enumerated(0)?;
+                    notification_control = Some(match control {
+                        0 => NotificationControl::NotificationRequested,
+                        _ => return Err(anyhow!("Invalid notification control: {}", control)),
+                    });
+                }
+                5 if maximum_packet_loss_rate_dl_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_packet_loss_rate_dl = Some(ie_decoder.read_constrained_integer(0, 1000)? as u16);
+                }
+                6 if maximum_packet_loss_rate_ul_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    maximum_packet_loss_rate_ul = Some(ie_decoder.read_constrained_integer(0, 1000)? as u16);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in GbrQosFlowInformation: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(GbrQosFlowInformation {
+            maximum_flow_bit_rate_dl: maximum_flow_bit_rate_dl.ok_or_else(|| anyhow!("Missing maximum flow bit rate DL"))?,
+            maximum_flow_bit_rate_ul: maximum_flow_bit_rate_ul.ok_or_else(|| anyhow!("Missing maximum flow bit rate UL"))?,
+            guaranteed_flow_bit_rate_dl: guaranteed_flow_bit_rate_dl.ok_or_else(|| anyhow!("Missing guaranteed flow bit rate DL"))?,
+            guaranteed_flow_bit_rate_ul: guaranteed_flow_bit_rate_ul.ok_or_else(|| anyhow!("Missing guaranteed flow bit rate UL"))?,
+            notification_control,
+            maximum_packet_loss_rate_dl,
+            maximum_packet_loss_rate_ul,
+        })
+    }
+
+    pub fn decode_qos_flow_level_qos_parameters(&self, data: &[u8]) -> Result<QosFlowLevelQosParameters> {
+        let mut decoder = PerDecoder::new(data);
+
+        tracing::debug!("Decoding QoS Flow Level QoS Parameters ({} bytes)", data.len());
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(3)?;
+        let gbr_qos_flow_information_present = (optional_fields_bitmap & 0x4) != 0;
+        let reflective_qos_attribute_present = (optional_fields_bitmap & 0x2) != 0;
+        let additional_qos_flow_information_present = (optional_fields_bitmap & 0x1) != 0;
+
+        tracing::debug!("Optional fields - gbr: {}, reflective: {}, additional: {}",
+            gbr_qos_flow_information_present,
+            reflective_qos_attribute_present,
+            additional_qos_flow_information_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("IE count: {}", ie_count);
+
+        let mut qos_characteristics = None;
+        let mut allocation_and_retention_priority = None;
+        let mut gbr_qos_flow_information = None;
+        let mut reflective_qos_attribute = None;
+        let mut additional_qos_flow_information = None;
+
+        for i in 0..ie_count {
+            tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
+
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            tracing::debug!("  IE ID: {}, length: {} bytes", ie_id, ie_value_length);
+
+            match ie_id {
+                0 => {
+                    qos_characteristics = Some(self.decode_qos_characteristics(&ie_value_data)?);
+                }
+                1 => {
+                    allocation_and_retention_priority = Some(self.decode_allocation_and_retention_priority(&ie_value_data)?);
+                }
+                2 if gbr_qos_flow_information_present => {
+                    gbr_qos_flow_information = Some(self.decode_gbr_qos_flow_information(&ie_value_data)?);
+                }
+                3 if reflective_qos_attribute_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let attribute = ie_decoder.read_enumerated(0)?;
+                    reflective_qos_attribute = Some(match attribute {
+                        0 => ReflectiveQosAttribute::SubjectTo,
+                        _ => return Err(anyhow!("Invalid reflective QoS attribute: {}", attribute)),
+                    });
+                }
+                4 if additional_qos_flow_information_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let info = ie_decoder.read_enumerated(0)?;
+                    additional_qos_flow_information = Some(match info {
+                        0 => AdditionalQosFlowInformation::MoreLikely,
+                        _ => return Err(anyhow!("Invalid additional QoS flow information: {}", info)),
+                    });
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in QosFlowLevelQosParameters: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(QosFlowLevelQosParameters {
+            qos_characteristics: qos_characteristics.ok_or_else(|| anyhow!("Missing QoS characteristics"))?,
+            allocation_and_retention_priority: allocation_and_retention_priority.ok_or_else(|| anyhow!("Missing allocation and retention priority"))?,
+            gbr_qos_flow_information,
+            reflective_qos_attribute,
+            additional_qos_flow_information,
+        })
+    }
+
+    pub fn extract_qos_flow_level_qos_parameters(&self, pdu: &NgapPdu) -> Result<Option<QosFlowLevelQosParameters>> {
+        let ie = self.extract_ie(pdu, ie_ids::QOS_FLOW_LEVEL_QOS_PARAMETERS)?;
+
+        if let Some(ie) = ie {
+            tracing::debug!("Decoding QoS Flow Level QoS Parameters IE ({} bytes)", ie.value.len());
+            Ok(Some(self.decode_qos_flow_level_qos_parameters(&ie.value)?))
+        } else {
+            tracing::debug!("QoS Flow Level QoS Parameters IE not found in PDU");
+            Ok(None)
+        }
+    }
 }
 
 impl Default for NgapParser {
@@ -1050,6 +1470,7 @@ pub mod ie_ids {
     pub const GTP_TUNNEL: u32 = 122;
     pub const QOS_FLOW_SETUP_REQUEST_LIST: u32 = 136;
     pub const QOS_FLOW_SETUP_RESPONSE_LIST: u32 = 137;
+    pub const QOS_FLOW_LEVEL_QOS_PARAMETERS: u32 = 135;
 }
 
 #[cfg(test)]

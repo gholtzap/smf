@@ -474,6 +474,14 @@ The server will start on `http://localhost:8080` by default.
     - QoS Flow With Cause Item decoding for failed QoS flow setup handling
     - NGAP Cause decoding with all cause categories (RadioNetwork, Transport, NAS, Protocol, Misc)
     - Support for optional fields (additional DL QoS flows, security result, failed setup list)
+  - QoS Flow Level QoS Parameters IE extraction and decoding
+    - QoS Characteristics decoding (NonDynamic5QI and Dynamic5QI descriptors)
+    - NonDynamic 5QI Descriptor decoding with priority level, averaging window, and data burst volume
+    - Dynamic 5QI Descriptor decoding with priority level, packet delay budget, and packet error rate
+    - Packet Error Rate decoding with scalar and exponent values
+    - Allocation and Retention Priority decoding with pre-emption capability and vulnerability
+    - GBR QoS Flow Information decoding with maximum and guaranteed bit rates
+    - Support for optional fields (reflective QoS attribute, additional QoS flow information)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -493,7 +501,6 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
-        - QoS Flow Level QoS Parameters IE extraction
         - User Location Information IE extraction
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs
