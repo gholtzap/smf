@@ -423,6 +423,13 @@ The server will start on `http://localhost:8080` by default.
     - Path Switch Request Transfer types
     - QoS flow setup and acceptance item types
     - Security result and indication types
+  - Path Switch Request IE extraction:
+    - DL NGU UP TNL information (GTP tunnel) extraction from NGAP messages
+    - DL NGU TNL information reused flag extraction
+    - User plane security information extraction (security result and security indication)
+    - QoS flow accepted list extraction with QoS flow identifiers
+    - Integration with handover notify handler for actual tunnel info parsing
+    - Integration with path switch handler for real NGAP data processing
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -486,11 +493,8 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - N2 SM information extraction and processing during handover:
       - NGAP message parsing infrastructure (broken down below)
-        - Path Switch Request IE extraction
         - QoS Flow Level QoS Parameters IE extraction
         - User Location Information IE extraction
-        - Integration of NGAP parsers with handover notify handler
-        - Integration of NGAP parsers with path switch handler
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)

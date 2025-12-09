@@ -4,7 +4,10 @@ use crate::types::ngap::{
     AssociatedQosFlowItem, ConfidentialityProtectionResult, GtpTunnel,
     IntegrityProtectionResult, PduSessionResourceSetupResponseTransfer, QosFlowMappingIndication,
     QosFlowPerTnlInformation, QosFlowWithCauseItem, SecurityResult, NgapCause, RadioNetworkCause,
-    TransportCause, NasCause, ProtocolCause, MiscCause,
+    TransportCause, NasCause, ProtocolCause, MiscCause, PathSwitchRequestTransfer,
+    DlNguTnlInformationReused, UserPlaneSecurityInformation, SecurityIndication,
+    IntegrityProtectionIndication, ConfidentialityProtectionIndication,
+    MaximumIntegrityProtectedDataRate, QosFlowAcceptedItem,
 };
 
 pub struct PerDecoder {
@@ -703,6 +706,247 @@ impl NgapParser {
     pub fn extract_pdu_session_resource_setup_response_transfer(&self, ie_value: &[u8]) -> Result<PduSessionResourceSetupResponseTransfer> {
         self.decode_pdu_session_resource_setup_response_transfer(ie_value)
     }
+
+    pub fn decode_qos_flow_accepted_item(&self, data: &[u8]) -> Result<QosFlowAcceptedItem> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("QosFlowAcceptedItem extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("QosFlowAcceptedItem IE count: {}", ie_count);
+
+        let mut qos_flow_identifier = None;
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    qos_flow_identifier = Some(ie_decoder.read_constrained_integer(0, 63)? as u8);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in QosFlowAcceptedItem: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(QosFlowAcceptedItem {
+            qos_flow_identifier: qos_flow_identifier.ok_or_else(|| anyhow!("Missing QoS flow identifier"))?,
+        })
+    }
+
+    pub fn decode_security_indication(&self, data: &[u8]) -> Result<SecurityIndication> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("SecurityIndication extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(2)?;
+        let max_integrity_protected_data_rate_ul_present = (optional_fields_bitmap & 0x2) != 0;
+        let max_integrity_protected_data_rate_dl_present = (optional_fields_bitmap & 0x1) != 0;
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("SecurityIndication IE count: {}", ie_count);
+
+        let mut integrity_protection_indication = None;
+        let mut confidentiality_protection_indication = None;
+        let mut maximum_integrity_protected_data_rate_ul = None;
+        let mut maximum_integrity_protected_data_rate_dl = None;
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let indication = ie_decoder.read_enumerated(2)?;
+                    integrity_protection_indication = Some(match indication {
+                        0 => IntegrityProtectionIndication::Required,
+                        1 => IntegrityProtectionIndication::Preferred,
+                        2 => IntegrityProtectionIndication::NotNeeded,
+                        _ => return Err(anyhow!("Invalid integrity protection indication: {}", indication)),
+                    });
+                }
+                1 => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let indication = ie_decoder.read_enumerated(2)?;
+                    confidentiality_protection_indication = Some(match indication {
+                        0 => ConfidentialityProtectionIndication::Required,
+                        1 => ConfidentialityProtectionIndication::Preferred,
+                        2 => ConfidentialityProtectionIndication::NotNeeded,
+                        _ => return Err(anyhow!("Invalid confidentiality protection indication: {}", indication)),
+                    });
+                }
+                2 if max_integrity_protected_data_rate_ul_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let rate = ie_decoder.read_enumerated(1)?;
+                    maximum_integrity_protected_data_rate_ul = Some(match rate {
+                        0 => MaximumIntegrityProtectedDataRate::Bitrate64kbs,
+                        1 => MaximumIntegrityProtectedDataRate::MaximumUeRate,
+                        _ => return Err(anyhow!("Invalid max integrity protected data rate UL: {}", rate)),
+                    });
+                }
+                3 if max_integrity_protected_data_rate_dl_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let rate = ie_decoder.read_enumerated(1)?;
+                    maximum_integrity_protected_data_rate_dl = Some(match rate {
+                        0 => MaximumIntegrityProtectedDataRate::Bitrate64kbs,
+                        1 => MaximumIntegrityProtectedDataRate::MaximumUeRate,
+                        _ => return Err(anyhow!("Invalid max integrity protected data rate DL: {}", rate)),
+                    });
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in SecurityIndication: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(SecurityIndication {
+            integrity_protection_indication: integrity_protection_indication
+                .ok_or_else(|| anyhow!("Missing integrity protection indication"))?,
+            confidentiality_protection_indication: confidentiality_protection_indication
+                .ok_or_else(|| anyhow!("Missing confidentiality protection indication"))?,
+            maximum_integrity_protected_data_rate_ul,
+            maximum_integrity_protected_data_rate_dl,
+        })
+    }
+
+    pub fn decode_user_plane_security_information(&self, data: &[u8]) -> Result<UserPlaneSecurityInformation> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("UserPlaneSecurityInformation extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("UserPlaneSecurityInformation IE count: {}", ie_count);
+
+        let mut security_result = None;
+        let mut security_indication = None;
+
+        for _ in 0..ie_count {
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    security_result = Some(self.decode_security_result(&ie_value_data)?);
+                }
+                1 => {
+                    security_indication = Some(self.decode_security_indication(&ie_value_data)?);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in UserPlaneSecurityInformation: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(UserPlaneSecurityInformation {
+            security_result: security_result.ok_or_else(|| anyhow!("Missing security result"))?,
+            security_indication: security_indication.ok_or_else(|| anyhow!("Missing security indication"))?,
+        })
+    }
+
+    pub fn decode_path_switch_request_transfer(&self, data: &[u8]) -> Result<PathSwitchRequestTransfer> {
+        let mut decoder = PerDecoder::new(data);
+
+        tracing::debug!("Decoding Path Switch Request Transfer ({} bytes)", data.len());
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(3)?;
+        let dl_ngu_tnl_information_reused_present = (optional_fields_bitmap & 0x4) != 0;
+        let user_plane_security_information_present = (optional_fields_bitmap & 0x2) != 0;
+        let qos_flow_accepted_list_present = (optional_fields_bitmap & 0x1) != 0;
+
+        tracing::debug!("Optional fields - tnl_reused: {}, security: {}, qos_accepted: {}",
+            dl_ngu_tnl_information_reused_present,
+            user_plane_security_information_present,
+            qos_flow_accepted_list_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("IE count: {}", ie_count);
+
+        let mut dl_ngu_up_tnl_information = None;
+        let mut dl_ngu_tnl_information_reused = None;
+        let mut user_plane_security_information = None;
+        let mut qos_flow_accepted_list = None;
+
+        for i in 0..ie_count {
+            tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
+
+            let ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            tracing::debug!("  IE ID: {}, length: {} bytes", ie_id, ie_value_length);
+
+            match ie_id {
+                0 => {
+                    dl_ngu_up_tnl_information = Some(self.decode_gtp_tunnel(&ie_value_data)?);
+                }
+                1 if dl_ngu_tnl_information_reused_present => {
+                    let mut ie_decoder = PerDecoder::new(&ie_value_data);
+                    let reused = ie_decoder.read_enumerated(0)?;
+                    dl_ngu_tnl_information_reused = Some(match reused {
+                        0 => DlNguTnlInformationReused::True,
+                        _ => return Err(anyhow!("Invalid DL NGU TNL information reused value: {}", reused)),
+                    });
+                }
+                2 if user_plane_security_information_present => {
+                    user_plane_security_information = Some(self.decode_user_plane_security_information(&ie_value_data)?);
+                }
+                3 if qos_flow_accepted_list_present => {
+                    let mut list_decoder = PerDecoder::new(&ie_value_data);
+                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
+
+                    let mut accepted_list = Vec::new();
+                    for _ in 0..list_count {
+                        list_decoder.align_to_byte();
+                        let item_length = list_decoder.read_length_determinant()?;
+                        let item_data = list_decoder.read_bytes(item_length)?;
+                        accepted_list.push(self.decode_qos_flow_accepted_item(&item_data)?);
+                    }
+                    qos_flow_accepted_list = Some(accepted_list);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in PathSwitchRequestTransfer: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(PathSwitchRequestTransfer {
+            dl_ngu_up_tnl_information: dl_ngu_up_tnl_information
+                .ok_or_else(|| anyhow!("Missing DL NGU UP TNL information"))?,
+            dl_ngu_tnl_information_reused,
+            user_plane_security_information,
+            qos_flow_accepted_list,
+        })
+    }
+
+    pub fn extract_path_switch_request_transfer(&self, ie_value: &[u8]) -> Result<PathSwitchRequestTransfer> {
+        self.decode_path_switch_request_transfer(ie_value)
+    }
 }
 
 impl Default for NgapParser {
@@ -1152,4 +1396,5 @@ mod tests {
         let result = parser.extract_gtp_tunnel(&pdu);
         assert!(result.is_err());
     }
+
 }

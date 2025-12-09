@@ -308,7 +308,7 @@ pub enum QosFlowMappingIndication {
     Dl,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecurityResult {
     pub integrity_protection_result: IntegrityProtectionResult,
     pub confidentiality_protection_result: ConfidentialityProtectionResult,
@@ -339,13 +339,13 @@ pub enum DlNguTnlInformationReused {
     True,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserPlaneSecurityInformation {
     pub security_result: SecurityResult,
     pub security_indication: SecurityIndication,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecurityIndication {
     pub integrity_protection_indication: IntegrityProtectionIndication,
     pub confidentiality_protection_indication: ConfidentialityProtectionIndication,
@@ -373,7 +373,7 @@ pub enum MaximumIntegrityProtectedDataRate {
     MaximumUeRate,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QosFlowAcceptedItem {
     pub qos_flow_identifier: u8,
 }

@@ -1,5 +1,6 @@
 use crate::models::{TunnelInfo, N2SmInfoType};
 use crate::types::{HoState, SmContextState};
+use crate::parsers::ngap::NgapParser;
 use base64::{Engine as _, engine::general_purpose};
 
 type HandoverResult<T> = Result<T, String>;
@@ -22,15 +23,28 @@ impl HandoverService {
             ngap_data.len()
         );
 
-        tracing::warn!(
-            "NGAP ASN.1 parsing not yet implemented. Using placeholder tunnel info. Decoded {} bytes of NGAP data.",
-            decoded_bytes.len()
+        let parser = NgapParser::new();
+
+        let path_switch_transfer = parser.extract_path_switch_request_transfer(&decoded_bytes)
+            .map_err(|e| format!("Failed to parse Path Switch Request Transfer: {}", e))?;
+
+        let gtp_tunnel = &path_switch_transfer.dl_ngu_up_tnl_information;
+
+        let ipv4_addr = gtp_tunnel.get_ip_address();
+        let teid = gtp_tunnel.get_teid()
+            .map(|t| format!("{:08x}", t))
+            .ok_or_else(|| "Failed to extract GTP TEID".to_string())?;
+
+        tracing::info!(
+            "Extracted tunnel info from NGAP: IP={:?}, TEID={}",
+            ipv4_addr,
+            teid
         );
 
         Ok(TunnelInfo {
-            ipv4_addr: Some("192.168.1.100".to_string()),
+            ipv4_addr,
             ipv6_addr: None,
-            gtp_teid: "12345678".to_string(),
+            gtp_teid: teid,
         })
     }
 
