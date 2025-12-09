@@ -13,6 +13,7 @@ use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
 use crate::services::handover::HandoverService;
+use crate::services::qos_flow_mapping::QosFlowMappingService;
 use crate::services::ssc_behavior::SscBehaviorService;
 use crate::services::ssc_mode2::SscMode2Service;
 use crate::services::ssc_mode3::SscMode3Service;
@@ -1318,12 +1319,29 @@ pub async fn handle_handover_request_ack(
                     resources.failed_qos_flow_ids
                 );
 
-                if !resources.failed_qos_flow_ids.is_empty() {
-                    tracing::warn!(
-                        "Some QoS flows failed to be allocated at target for SUPI: {}, Failed QFIs: {:?}",
+                let mapping_result = QosFlowMappingService::map_qos_flows_to_target(
+                    &sm_context.qos_flows,
+                    &resources.allocated_qos_flow_ids,
+                    &resources.failed_qos_flow_ids,
+                );
+
+                tracing::info!(
+                    "QoS flow mapping status for SUPI: {}: {:?}, {}",
+                    sm_context.supi,
+                    mapping_result.mapping_status,
+                    QosFlowMappingService::get_qos_flow_summary(&mapping_result.allocated_flows)
+                );
+
+                if !mapping_result.mapping_status.is_acceptable() {
+                    tracing::error!(
+                        "QoS flow mapping failed for SUPI: {}, status: {:?}",
                         sm_context.supi,
-                        resources.failed_qos_flow_ids
+                        mapping_result.mapping_status
                     );
+                    return Err(AppError::ValidationError(format!(
+                        "QoS flow mapping failed: {:?}. Critical flows could not be allocated at target",
+                        mapping_result.mapping_status
+                    )));
                 }
 
                 update_doc.insert(
@@ -1331,22 +1349,15 @@ pub async fn handle_handover_request_ack(
                     mongodb::bson::to_bson(&resources.target_tunnel_info).unwrap(),
                 );
 
-                let allocated_qos_flows: Vec<_> = sm_context
-                    .qos_flows
-                    .iter()
-                    .filter(|qf| resources.allocated_qos_flow_ids.contains(&qf.qfi))
-                    .cloned()
-                    .collect();
-
-                if !allocated_qos_flows.is_empty() {
+                if !mapping_result.allocated_flows.is_empty() {
                     update_doc.insert(
                         "qos_flows",
-                        mongodb::bson::to_bson(&allocated_qos_flows).unwrap(),
+                        mongodb::bson::to_bson(&mapping_result.allocated_flows).unwrap(),
                     );
                     tracing::info!(
                         "Updated QoS flows for SUPI: {} to reflect allocated resources: {:?}",
                         sm_context.supi,
-                        allocated_qos_flows.iter().map(|qf| qf.qfi).collect::<Vec<_>>()
+                        mapping_result.allocated_flows.iter().map(|qf| qf.qfi).collect::<Vec<_>>()
                     );
                 }
 
@@ -1555,6 +1566,40 @@ pub async fn handle_handover_notify(
                 mongodb::bson::to_bson(ue_location).unwrap(),
             );
         }
+
+        let updated_sm_context = collection
+            .find_one(doc! { "_id": &sm_context_ref })
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+        let continuity_check = QosFlowMappingService::check_qos_flow_continuity(
+            &sm_context.supi,
+            sm_context.pdu_session_id,
+            &sm_context.qos_flows,
+            &updated_sm_context.qos_flows,
+        );
+
+        if !continuity_check.continuity_status.is_acceptable() {
+            tracing::error!(
+                "QoS flow continuity check failed for SUPI: {}, PDU Session ID: {}, status: {:?}",
+                sm_context.supi,
+                sm_context.pdu_session_id,
+                continuity_check.continuity_status
+            );
+            return Err(AppError::ValidationError(format!(
+                "QoS flow continuity interrupted: {:?}. Missing flows: {:?}",
+                continuity_check.continuity_status,
+                continuity_check.missing_flows
+            )));
+        }
+
+        tracing::info!(
+            "QoS flow continuity maintained for SUPI: {}, PDU Session ID: {}: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id,
+            QosFlowMappingService::get_qos_flow_summary(&updated_sm_context.qos_flows)
+        );
 
         tracing::info!(
             "Handover completed for SUPI: {}, PDU Session ID: {}, UE Location: {:?}",

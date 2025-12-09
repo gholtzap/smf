@@ -437,6 +437,18 @@ The server will start on `http://localhost:8080` by default.
   - State validation for handover eligibility
   - Path switch acknowledgment with N2 SM info
   - Integration with PDU session update handler
+- QoS flow mapping and continuity during handover
+  - QoS flow mapping service for source-to-target flow mapping
+  - QoS flow allocation status tracking (allocated/failed flows)
+  - Critical QoS flow identification (GBR flows, 5QI <= 5, priority <= 20)
+  - QoS flow mapping status validation (AllAllocated, PartiallyAllocated, CriticalFlowsFailed, AllFailed)
+  - Handover rejection on critical QoS flow allocation failure
+  - QoS flow continuity checking during handover completion
+  - Continuity status validation (Maintained, PartiallyMaintained, Interrupted)
+  - Missing and added QoS flow tracking and reporting
+  - QoS flow summary reporting (GBR/Non-GBR/Delay-GBR counts, critical flow counts)
+  - Integration with handover request acknowledgment handler
+  - Integration with handover notify handler for continuity validation
 - N2-based handover
   - Handover required notification handling from source AMF
   - Target identification and validation (gNB ID, TAI)
@@ -574,7 +586,6 @@ The server will start on `http://localhost:8080` by default.
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
   - UPF relocation and selection during handover
-  - QoS flow mapping and continuity during handover
   - Session AMBR enforcement during handover
 
 ### Security
