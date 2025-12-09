@@ -19,6 +19,7 @@ pub mod chf;
 pub mod oauth2;
 pub mod oauth2_request;
 pub mod ngap;
+pub mod up_security;
 
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,7 @@ pub use handover::*;
 pub use udr::*;
 pub use oauth2::*;
 pub use ngap::*;
+pub use up_security::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

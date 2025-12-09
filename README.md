@@ -381,6 +381,14 @@ The server will start on `http://localhost:8080` by default.
     - Required scope validation for protected endpoints
     - Proper error responses (401 Unauthorized, 403 Forbidden)
     - Logging of validation failures for security monitoring
+- User plane encryption and integrity protection:
+  - UP security data models and types (SecurityIndication, SecurityResult, IntegrityProtectionResult, ConfidentialityProtectionResult)
+  - UP security algorithm types (CipheringAlgorithm: NEA0, NEA1, NEA2, NEA3; IntegrityAlgorithm: NIA0, NIA1, NIA2, NIA3)
+  - UP security context management structure (UpSecurityContext with algorithm selection and activation status)
+  - UE security capabilities data model (UeSecurityCapabilities with NR and E-UTRA algorithm support)
+  - UP security policy framework (UpSecurityPolicy with preferred algorithms and protection requirements)
+  - Algorithm conversion utilities (to/from u8, null algorithm detection)
+  - Maximum integrity protected data rate types and conversion to kbps
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -531,9 +539,11 @@ The server will start on `http://localhost:8080` by default.
   - Certificate management
   - Mutual TLS (mTLS) support
 - User plane encryption and integrity protection:
-  - UP security policy negotiation
-  - Encryption algorithm selection (NEA0, NEA1, NEA2, NEA3)
-  - Integrity algorithm selection (NIA0, NIA1, NIA2, NIA3)
+  - UP security capability negotiation with UE via AMF N1N2 messages
+  - UP security algorithm selection logic based on UE capabilities and network policy
+  - UP security context management in SM context (selected algorithms, security activation state)
+  - Integration with PFCP for UP security enforcement (security parameters in session establishment/modification)
+  - UP security policy configuration framework (preferred algorithms, mandatory protection)
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control
