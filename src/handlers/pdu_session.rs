@@ -520,6 +520,36 @@ pub async fn create_pdu_session(
         tracing::debug!("CHF client not available, skipping charging session creation");
     }
 
+    let selected_upf_result = state.upf_selection_service.select_upf(&crate::types::UpfSelectionCriteria {
+        ue_location: sm_context.ue_location.clone(),
+        s_nssai: sm_context.s_nssai.clone(),
+        dnn: sm_context.dnn.clone(),
+        current_upf_address: None,
+    }).await;
+
+    match selected_upf_result {
+        Ok(selection_result) => {
+            sm_context.upf_address = Some(selection_result.selected_upf.address.clone());
+            tracing::info!(
+                "Selected UPF {} for PDU session (SUPI: {}, PDU Session ID: {}, score: {})",
+                selection_result.selected_upf.address,
+                payload.supi,
+                payload.pdu_session_id,
+                selection_result.score
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                "UPF selection failed for SUPI: {}: {}, falling back to default UPF",
+                payload.supi,
+                e
+            );
+            if let Some(ref pfcp_client) = state.pfcp_client {
+                sm_context.upf_address = Some(pfcp_client.upf_address().to_string());
+            }
+        }
+    }
+
     if let Some(ref pfcp_client) = state.pfcp_client {
         let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
 
@@ -703,6 +733,23 @@ async fn handle_path_switch(
 
     HandoverService::validate_handover_state(&sm_context.state)
         .map_err(AppError::ValidationError)?;
+
+    if let Some(ref current_upf_address) = sm_context.upf_address {
+        let relocation_decision = state.upf_selection_service.evaluate_upf_relocation(
+            current_upf_address,
+            payload.ue_location.clone(),
+        ).await;
+
+        if let Ok(decision) = relocation_decision {
+            if decision.should_relocate {
+                tracing::info!(
+                    "UPF relocation required during path switch for SUPI: {}, Reason: {:?}",
+                    sm_context.supi,
+                    decision.reason
+                );
+            }
+        }
+    }
 
     if sm_context.ssc_mode == SscMode::Mode1 {
         tracing::info!(
@@ -1600,6 +1647,63 @@ pub async fn handle_handover_notify(
     };
 
     if matches!(payload.ho_state, HoState::Completed) {
+        if let Some(ref current_upf_address) = sm_context.upf_address {
+            let relocation_decision = state.upf_selection_service.evaluate_upf_relocation(
+                current_upf_address,
+                payload.ue_location.clone(),
+            ).await;
+
+            match relocation_decision {
+                Ok(decision) if decision.should_relocate => {
+                    tracing::info!(
+                        "UPF relocation required for SUPI: {}, Reason: {:?}, Current UPF: {}, Target UPF: {:?}",
+                        sm_context.supi,
+                        decision.reason,
+                        current_upf_address,
+                        decision.target_upf_address
+                    );
+
+                    if let Some(target_upf) = decision.target_upf_address {
+                        update_doc.insert("upf_address", target_upf.clone());
+                        tracing::info!(
+                            "UPF relocation completed: {} -> {} for SUPI: {}",
+                            current_upf_address,
+                            target_upf,
+                            sm_context.supi
+                        );
+                    } else {
+                        let new_selection_result = state.upf_selection_service.select_upf(&crate::types::UpfSelectionCriteria {
+                            ue_location: payload.ue_location.clone(),
+                            s_nssai: sm_context.s_nssai.clone(),
+                            dnn: sm_context.dnn.clone(),
+                            current_upf_address: Some(current_upf_address.clone()),
+                        }).await;
+
+                        if let Ok(new_selection) = new_selection_result {
+                            if new_selection.relocation_required {
+                                update_doc.insert("upf_address", new_selection.selected_upf.address.clone());
+                                tracing::info!(
+                                    "UPF relocation completed via selection: {} -> {} for SUPI: {} (score: {})",
+                                    current_upf_address,
+                                    new_selection.selected_upf.address,
+                                    sm_context.supi,
+                                    new_selection.score
+                                );
+                            }
+                        } else {
+                            tracing::warn!("Failed to select new UPF during relocation for SUPI: {}", sm_context.supi);
+                        }
+                    }
+                }
+                Ok(_) => {
+                    tracing::debug!("No UPF relocation required for SUPI: {}", sm_context.supi);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to evaluate UPF relocation for SUPI: {}: {}", sm_context.supi, e);
+                }
+            }
+        }
+
         if sm_context.ssc_mode == SscMode::Mode1 {
             if let Some(ref existing_pdu_addr) = sm_context.pdu_address {
                 SscBehaviorService::validate_handover_ip_behavior(

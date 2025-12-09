@@ -529,6 +529,28 @@ The server will start on `http://localhost:8080` by default.
     - QoS flow accepted list extraction with QoS flow identifiers
     - Integration with handover notify handler for actual tunnel info parsing
     - Integration with path switch handler for real NGAP data processing
+- UPF relocation and selection during handover
+  - UPF selection service for dynamic UPF assignment
+    - UPF selection criteria (UE location, S-NSSAI, DNN, current UPF)
+    - Score-based UPF selection algorithm
+    - Active UPF status validation
+    - Current UPF preference bonus for stability
+    - Location-based UPF suitability assessment
+    - Automatic fallback to default UPF on selection failure
+  - UPF relocation decision framework
+    - UPF relocation evaluation based on UE location change
+    - UPF failure detection and automatic relocation
+    - Relocation reason tracking (LocationChange, UpfFailure, LoadBalancing, PolicyChange)
+    - Target UPF selection during relocation
+  - UPF tracking in SM context
+    - UPF address field in SM context model
+    - UPF assignment during PDU session creation
+    - UPF address update during relocation
+  - Integration with handover procedures
+    - UPF relocation evaluation during N2-based handover completion
+    - UPF relocation evaluation during Xn-based handover (path switch)
+    - Automatic UPF selection on handover when relocation required
+    - UPF relocation logging and monitoring throughout handover lifecycle
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -609,7 +631,6 @@ The server will start on `http://localhost:8080` by default.
   - N2-based handover completion:
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
-  - UPF relocation and selection during handover
 
 ### Security
 - Service-based interface security:

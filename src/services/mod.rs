@@ -29,3 +29,4 @@ pub mod up_security_selection;
 pub mod up_security_config;
 pub mod qos_flow_mapping;
 pub mod ambr_enforcement;
+pub mod upf_selection;

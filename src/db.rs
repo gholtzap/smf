@@ -15,6 +15,7 @@ use crate::services::pcf::PcfClient;
 use crate::services::udm::UdmClient;
 use crate::services::udr::UdrClient;
 use crate::services::chf::ChfClient;
+use crate::services::upf_selection::UpfSelectionService;
 use crate::config::Config;
 use crate::models::SmContext;
 
@@ -33,6 +34,7 @@ pub struct AppState {
     pub slice_qos_policy_service: Arc<SliceQosPolicyService>,
     pub dnn_selector: Arc<DnnSelector>,
     pub ssc_selector: Arc<SscModeSelector>,
+    pub upf_selection_service: Arc<UpfSelectionService>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -147,6 +149,9 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let ssc_selector = Arc::new(SscModeSelector::new());
     tracing::info!("SSC mode selector initialized with {} allowed modes", ssc_selector.get_allowed_modes().len());
 
+    let upf_selection_service = Arc::new(UpfSelectionService::new(db.clone()));
+    tracing::info!("UPF selection service initialized");
+
     Ok(AppState {
         db,
         notification_service,
@@ -161,6 +166,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         slice_qos_policy_service,
         dnn_selector,
         ssc_selector,
+        upf_selection_service,
     })
 }
 

@@ -22,6 +22,7 @@ pub mod ngap;
 pub mod up_security;
 pub mod qos_flow_mapping;
 pub mod nas;
+pub mod upf_selection;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +46,7 @@ pub use ngap::*;
 pub use up_security::*;
 pub use qos_flow_mapping::*;
 pub use nas::*;
+pub use upf_selection::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

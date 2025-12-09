@@ -209,6 +209,7 @@ pub struct SmContext {
     pub up_security_context: Option<UpSecurityContext>,
     pub ue_security_capabilities: Option<UeSecurityCapabilities>,
     pub session_ambr: Option<Ambr>,
+    pub upf_address: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -245,6 +246,7 @@ impl SmContext {
             up_security_context: None,
             ue_security_capabilities: None,
             session_ambr: None,
+            upf_address: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
