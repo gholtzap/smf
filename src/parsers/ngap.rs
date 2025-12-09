@@ -11,7 +11,8 @@ use crate::types::ngap::{
     QosCharacteristics, NonDynamic5qiDescriptor, Dynamic5qiDescriptor, PacketErrorRate,
     AllocationAndRetentionPriority, PreEmptionCapability, PreEmptionVulnerability,
     GbrQosFlowInformation, NotificationControl, ReflectiveQosAttribute,
-    AdditionalQosFlowInformation,
+    AdditionalQosFlowInformation, UserLocationInformation, NrCgi, PlmnIdentity,
+    NrCellIdentity, NgapTai, NgapTac,
 };
 
 pub struct PerDecoder {
@@ -1364,6 +1365,224 @@ impl NgapParser {
             Ok(Some(self.decode_qos_flow_level_qos_parameters(&ie.value)?))
         } else {
             tracing::debug!("QoS Flow Level QoS Parameters IE not found in PDU");
+            Ok(None)
+        }
+    }
+
+    pub fn decode_plmn_identity(&self, data: &[u8]) -> Result<PlmnIdentity> {
+        if data.len() != 3 {
+            return Err(anyhow!("Invalid PLMN identity length: expected 3 bytes, got {}", data.len()));
+        }
+
+        let mcc_digit1 = data[0] & 0x0F;
+        let mcc_digit2 = (data[0] >> 4) & 0x0F;
+        let mcc_digit3 = data[1] & 0x0F;
+
+        let mnc_digit3 = (data[1] >> 4) & 0x0F;
+        let mnc_digit1 = data[2] & 0x0F;
+        let mnc_digit2 = (data[2] >> 4) & 0x0F;
+
+        let mcc = format!("{}{}{}", mcc_digit1, mcc_digit2, mcc_digit3);
+
+        let mnc = if mnc_digit3 == 0x0F {
+            format!("{}{}", mnc_digit1, mnc_digit2)
+        } else {
+            format!("{}{}{}", mnc_digit1, mnc_digit2, mnc_digit3)
+        };
+
+        tracing::debug!("Decoded PLMN Identity: MCC={}, MNC={}", mcc, mnc);
+
+        Ok(PlmnIdentity { mcc, mnc })
+    }
+
+    pub fn decode_nr_cell_identity(&self, data: &[u8]) -> Result<NrCellIdentity> {
+        let mut decoder = PerDecoder::new(data);
+
+        let bit_string = decoder.read_bit_string()?;
+
+        if bit_string.len() < 5 {
+            return Err(anyhow!("Invalid NR Cell Identity length: expected at least 5 bytes, got {}", bit_string.len()));
+        }
+
+        let mut value: u64 = 0;
+        for (i, &byte) in bit_string.iter().take(5).enumerate() {
+            value |= (byte as u64) << ((4 - i) * 8);
+        }
+
+        tracing::debug!("Decoded NR Cell Identity: 0x{:X}", value);
+
+        Ok(NrCellIdentity { value })
+    }
+
+    pub fn decode_nr_cgi(&self, data: &[u8]) -> Result<NrCgi> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("NR-CGI extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("NR-CGI IE count: {}", ie_count);
+
+        let mut plmn_identity = None;
+        let mut nr_cell_identity = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    plmn_identity = Some(self.decode_plmn_identity(&ie_value_data)?);
+                }
+                1 => {
+                    nr_cell_identity = Some(self.decode_nr_cell_identity(&ie_value_data)?);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in NR-CGI: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(NrCgi {
+            plmn_identity: plmn_identity.ok_or_else(|| anyhow!("Missing PLMN identity"))?,
+            nr_cell_identity: nr_cell_identity.ok_or_else(|| anyhow!("Missing NR cell identity"))?,
+        })
+    }
+
+    pub fn decode_tac(&self, data: &[u8]) -> Result<NgapTac> {
+        let mut decoder = PerDecoder::new(data);
+
+        let tac_bytes = decoder.read_octet_string()?;
+
+        if tac_bytes.len() != 3 {
+            return Err(anyhow!("Invalid TAC length: expected 3 bytes, got {}", tac_bytes.len()));
+        }
+
+        tracing::debug!("Decoded TAC: {:02X}{:02X}{:02X}", tac_bytes[0], tac_bytes[1], tac_bytes[2]);
+
+        Ok(NgapTac { value: tac_bytes })
+    }
+
+    pub fn decode_tai(&self, data: &[u8]) -> Result<NgapTai> {
+        let mut decoder = PerDecoder::new(data);
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("TAI extension present: {}", extension_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("TAI IE count: {}", ie_count);
+
+        let mut plmn_identity = None;
+        let mut tac = None;
+
+        for _ in 0..ie_count {
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            match ie_id {
+                0 => {
+                    plmn_identity = Some(self.decode_plmn_identity(&ie_value_data)?);
+                }
+                1 => {
+                    tac = Some(self.decode_tac(&ie_value_data)?);
+                }
+                _ => {
+                    tracing::debug!("Unknown IE in TAI: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(NgapTai {
+            plmn_identity: plmn_identity.ok_or_else(|| anyhow!("Missing PLMN identity"))?,
+            tac: tac.ok_or_else(|| anyhow!("Missing TAC"))?,
+        })
+    }
+
+    pub fn decode_user_location_information_nr(&self, data: &[u8]) -> Result<UserLocationInformation> {
+        let mut decoder = PerDecoder::new(data);
+
+        tracing::debug!("Decoding User Location Information NR ({} bytes)", data.len());
+
+        let extension_present = decoder.read_bits(1)? == 1;
+        tracing::debug!("Extension present: {}", extension_present);
+
+        let optional_fields_bitmap = decoder.read_bits(2)?;
+        let nr_cgi_present = (optional_fields_bitmap & 0x2) != 0;
+        let tai_present = (optional_fields_bitmap & 0x1) != 0;
+
+        tracing::debug!("Optional fields - NR-CGI: {}, TAI: {}", nr_cgi_present, tai_present);
+
+        let ie_count = decoder.read_constrained_integer(0, 65535)? as usize;
+        tracing::debug!("IE count: {}", ie_count);
+
+        let mut nr_cgi = None;
+        let mut tai = None;
+
+        for i in 0..ie_count {
+            tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
+
+            let _ie_extension = decoder.read_bits(1)? == 1;
+            let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
+            let _ie_criticality = decoder.read_enumerated(2)?;
+            decoder.align_to_byte();
+            let ie_value_length = decoder.read_length_determinant()?;
+            let ie_value_data = decoder.read_bytes(ie_value_length)?;
+
+            tracing::debug!("  IE ID: {}, length: {} bytes", ie_id, ie_value_length);
+
+            match ie_id {
+                0 if nr_cgi_present => {
+                    nr_cgi = Some(self.decode_nr_cgi(&ie_value_data)?);
+                }
+                1 if tai_present => {
+                    tai = Some(self.decode_tai(&ie_value_data)?);
+                }
+                _ => {
+                    tracing::debug!("Unknown or optional IE in UserLocationInformationNR: {}", ie_id);
+                }
+            }
+        }
+
+        Ok(UserLocationInformation { nr_cgi, tai })
+    }
+
+    pub fn extract_user_location_information(&self, pdu: &NgapPdu) -> Result<Option<UserLocationInformation>> {
+        let ie = self.extract_ie(pdu, ie_ids::USER_LOCATION_INFORMATION)?;
+
+        if let Some(ie) = ie {
+            tracing::debug!("Decoding User Location Information IE ({} bytes)", ie.value.len());
+
+            let mut decoder = PerDecoder::new(&ie.value);
+
+            let extension_present = decoder.read_bits(1)? == 1;
+            tracing::debug!("User Location Information choice extension present: {}", extension_present);
+
+            let choice = decoder.read_enumerated(4)?;
+            tracing::debug!("User Location Information choice: {}", choice);
+
+            decoder.align_to_byte();
+            let value_length = decoder.read_length_determinant()?;
+            let value_data = decoder.read_bytes(value_length)?;
+
+            match choice {
+                0 => {
+                    Ok(Some(self.decode_user_location_information_nr(&value_data)?))
+                }
+                _ => {
+                    tracing::warn!("Unsupported User Location Information choice: {} (only NR is supported)", choice);
+                    Ok(None)
+                }
+            }
+        } else {
+            tracing::debug!("User Location Information IE not found in PDU");
             Ok(None)
         }
     }

@@ -482,6 +482,15 @@ The server will start on `http://localhost:8080` by default.
     - Allocation and Retention Priority decoding with pre-emption capability and vulnerability
     - GBR QoS Flow Information decoding with maximum and guaranteed bit rates
     - Support for optional fields (reflective QoS attribute, additional QoS flow information)
+  - User Location Information IE extraction and decoding
+    - User Location Information NR (New Radio) variant decoding
+    - NR Cell Global Identifier (NR-CGI) extraction with PLMN identity and cell identity
+    - Tracking Area Identity (TAI) extraction with PLMN identity and TAC
+    - PLMN Identity decoding (MCC/MNC from BCD format)
+    - NR Cell Identity decoding (36-bit cell identifier)
+    - Tracking Area Code (TAC) decoding (24-bit area code)
+    - Support for optional NR-CGI and TAI fields
+    - Comprehensive logging for location information debugging
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -499,9 +508,6 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - N2-based handover completion:
-    - N2 SM information extraction and processing during handover:
-      - NGAP message parsing infrastructure (broken down below)
-        - User Location Information IE extraction
     - Handover resource allocation coordination with target gNB
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
