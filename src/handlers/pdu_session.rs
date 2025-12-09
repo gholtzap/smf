@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
-use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
+use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -175,7 +175,56 @@ pub async fn create_pdu_session(
         payload.supi
     );
 
-    let ue_capabilities = UeSecurityCapabilities::default();
+    let ue_capabilities = if let Some(ref n1_sm_msg) = payload.n1_sm_msg {
+        tracing::debug!(
+            "Parsing N1 SM message for SUPI: {} to extract UE security capabilities",
+            payload.supi
+        );
+
+        let n1_data = base64::decode(&n1_sm_msg.content_id).unwrap_or_default();
+
+        if !n1_data.is_empty() {
+            match NasParser::parse_pdu_session_establishment_request(&n1_data) {
+                Ok(nas_request) => {
+                    if let Some(caps) = nas_request.ue_security_capabilities {
+                        tracing::info!(
+                            "Extracted UE security capabilities from N1 message for SUPI: {} - NR Enc: {:?}, NR Int: {:?}",
+                            payload.supi,
+                            caps.nr_encryption_algorithms,
+                            caps.nr_integrity_algorithms
+                        );
+                        caps
+                    } else {
+                        tracing::warn!(
+                            "N1 message parsed but no UE security capabilities found for SUPI: {}, using defaults",
+                            payload.supi
+                        );
+                        UeSecurityCapabilities::default()
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to parse N1 SM message for SUPI: {}: {}, using default UE capabilities",
+                        payload.supi,
+                        e
+                    );
+                    UeSecurityCapabilities::default()
+                }
+            }
+        } else {
+            tracing::warn!(
+                "N1 SM message present but empty for SUPI: {}, using default UE capabilities",
+                payload.supi
+            );
+            UeSecurityCapabilities::default()
+        }
+    } else {
+        tracing::debug!(
+            "No N1 SM message provided for SUPI: {}, using default UE capabilities",
+            payload.supi
+        );
+        UeSecurityCapabilities::default()
+    };
     let network_policy = if sm_context.is_emergency {
         UpSecurityConfigService::get_policy_for_emergency()
     } else {
@@ -184,6 +233,8 @@ pub async fn create_pdu_session(
             payload.s_nssai.sd.as_deref()
         )
     };
+
+    sm_context.ue_security_capabilities = Some(ue_capabilities.clone());
 
     match UpSecuritySelector::select_algorithms(&ue_capabilities, &network_policy) {
         Ok(up_security_context) => {
@@ -516,6 +567,52 @@ pub async fn create_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+    let n1_sm_info_to_ue = if let Some(ref up_sec_ctx) = sm_context.up_security_context {
+        let pdu_session_type_value = match sm_context.pdu_session_type {
+            PduSessionType::Ipv4 => 1,
+            PduSessionType::Ipv6 => 2,
+            PduSessionType::Ipv4v6 => 3,
+            _ => 1,
+        };
+
+        let ssc_mode_value = match sm_context.ssc_mode {
+            SscMode::Mode1 => 1,
+            SscMode::Mode2 => 2,
+            SscMode::Mode3 => 3,
+        };
+
+        let integrity_required = up_sec_ctx.integrity_protection_activated;
+        let confidentiality_required = up_sec_ctx.confidentiality_protection_activated;
+
+        let nas_accept_msg = NasParser::build_pdu_session_establishment_accept(
+            payload.pdu_session_id,
+            1,
+            pdu_session_type_value,
+            ssc_mode_value,
+            integrity_required,
+            confidentiality_required,
+        );
+
+        let encoded = base64::encode(&nas_accept_msg);
+
+        tracing::info!(
+            "Built N1 PDU Session Establishment Accept for SUPI: {} with UP security policy - Integrity: {}, Confidentiality: {}",
+            payload.supi,
+            integrity_required,
+            confidentiality_required
+        );
+
+        Some(crate::types::RefToBinaryData {
+            content_id: encoded,
+        })
+    } else {
+        tracing::debug!(
+            "No UP security context available for SUPI: {}, N1 response will not include UP security policy",
+            payload.supi
+        );
+        None
+    };
+
     let response = PduSessionCreatedData {
         pdu_session_type: sm_context.pdu_session_type.clone(),
         ssc_mode: sm_context.ssc_mode.as_str().to_string(),
@@ -529,7 +626,7 @@ pub async fn create_pdu_session(
         dns_primary: ip_allocation.dns_primary.clone(),
         dns_secondary: ip_allocation.dns_secondary.clone(),
         mtu: sm_context.mtu,
-        n1_sm_info_to_ue: None,
+        n1_sm_info_to_ue,
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: sm_context.session_ambr.clone(),

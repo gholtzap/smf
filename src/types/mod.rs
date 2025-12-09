@@ -21,6 +21,7 @@ pub mod oauth2_request;
 pub mod ngap;
 pub mod up_security;
 pub mod qos_flow_mapping;
+pub mod nas;
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,7 @@ pub use oauth2::*;
 pub use ngap::*;
 pub use up_security::*;
 pub use qos_flow_mapping::*;
+pub use nas::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

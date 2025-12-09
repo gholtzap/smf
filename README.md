@@ -426,6 +426,19 @@ The server will start on `http://localhost:8080` by default.
     - Integration with PDU session create handler for UP security enforcement
     - Integration with PDU session modify handler for UP security updates
     - Integration with handover procedures for UP security continuity
+  - UP security capability negotiation with UE via AMF N1N2 messages
+    - NAS message data models for PDU Session Establishment Request/Accept
+    - NAS message parser for extracting UE security capabilities from N1 messages
+    - UE security capability extraction from PDU Session Establishment Request
+    - Information Element (IE) parsing for UE Security Capability IE
+    - Support for NR and E-UTRA encryption/integrity algorithm bitmaps
+    - UE security capabilities storage in SM context
+    - Integration with UP security algorithm selection using actual UE capabilities
+    - N1 message builder for PDU Session Establishment Accept
+    - UP security policy indication in N1 response messages
+    - Security activation information delivery to UE (integrity/confidentiality protection requirements)
+    - Base64 encoding/decoding for N1 message transport
+    - Maximum data rate for user plane integrity protection parsing and handling
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -602,8 +615,6 @@ The server will start on `http://localhost:8080` by default.
 - Service-based interface security:
   - Certificate management
   - Mutual TLS (mTLS) support
-- User plane encryption and integrity protection:
-  - UP security capability negotiation with UE via AMF N1N2 messages
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control
