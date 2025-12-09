@@ -33,6 +33,10 @@ OAUTH2_REQUIRED_SCOPE=
 TLS_ENABLED=false
 TLS_CERT_PATH=
 TLS_KEY_PATH=
+TLS_CLIENT_CERT_PATH=
+TLS_CLIENT_KEY_PATH=
+TLS_CLIENT_CA_PATH=
+TLS_REQUIRE_CLIENT_CERT=false
 ```
 
 ## Building
@@ -384,6 +388,15 @@ The server will start on `http://localhost:8080` by default.
     - Environment-based TLS configuration (TLS_ENABLED, TLS_CERT_PATH, TLS_KEY_PATH)
     - Conditional TLS activation (HTTP/HTTPS mode selection)
     - Ring crypto provider for cross-platform compatibility
+  - Mutual TLS (mTLS) support
+    - Server-side client certificate validation
+    - Client CA certificate configuration (TLS_CLIENT_CA_PATH)
+    - Configurable client certificate requirement (TLS_REQUIRE_CLIENT_CERT)
+    - Client certificate verification using WebPKI
+    - Support for both required and optional client certificates
+    - Client-side certificate configuration for outbound requests (TLS_CLIENT_CERT_PATH, TLS_CLIENT_KEY_PATH)
+    - Integration with HTTP server TLS configuration
+    - Automatic mTLS mode detection and activation
 - Authorization and access control:
   - Scope validation for OAuth2 tokens
     - Issuer validation against configured OAuth2 issuer
@@ -635,7 +648,6 @@ The server will start on `http://localhost:8080` by default.
 ### Security
 - Service-based interface security:
   - Certificate management
-  - Mutual TLS (mTLS) support
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control

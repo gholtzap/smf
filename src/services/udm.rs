@@ -22,6 +22,11 @@ impl UdmClient {
         }
     }
 
+    pub fn with_client(mut self, client: Client) -> Self {
+        self.client = client;
+        self
+    }
+
     pub fn with_oauth2(mut self, oauth2_client: Arc<OAuth2TokenClient>) -> Self {
         self.oauth2_client = Some(oauth2_client);
         self

@@ -6,6 +6,10 @@ pub struct TlsConfig {
     pub enabled: bool,
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
+    pub client_cert_path: Option<String>,
+    pub client_key_path: Option<String>,
+    pub client_ca_path: Option<String>,
+    pub require_client_cert: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -94,11 +98,22 @@ impl Config {
 
         let tls_cert_path = env::var("TLS_CERT_PATH").ok();
         let tls_key_path = env::var("TLS_KEY_PATH").ok();
+        let tls_client_cert_path = env::var("TLS_CLIENT_CERT_PATH").ok();
+        let tls_client_key_path = env::var("TLS_CLIENT_KEY_PATH").ok();
+        let tls_client_ca_path = env::var("TLS_CLIENT_CA_PATH").ok();
+        let tls_require_client_cert = env::var("TLS_REQUIRE_CLIENT_CERT")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
 
         let tls = TlsConfig {
             enabled: tls_enabled,
             cert_path: tls_cert_path,
             key_path: tls_key_path,
+            client_cert_path: tls_client_cert_path,
+            client_key_path: tls_client_key_path,
+            client_ca_path: tls_client_ca_path,
+            require_client_cert: tls_require_client_cert,
         };
 
         Ok(Self {

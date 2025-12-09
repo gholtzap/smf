@@ -17,6 +17,11 @@ impl UdrClient {
         }
     }
 
+    pub fn with_client(mut self, client: Client) -> Self {
+        self.client = client;
+        self
+    }
+
     pub async fn get_sm_data(
         &self,
         udr_uri: &str,

@@ -14,6 +14,62 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tokio::signal;
 use axum_server::tls_rustls::RustlsConfig;
+use rustls::{ServerConfig, RootCertStore};
+use rustls::server::WebPkiClientVerifier;
+use std::sync::Arc;
+use std::io::BufReader;
+use rustls_pemfile::{certs, pkcs8_private_keys};
+
+async fn build_mtls_config(
+    cert_path: &str,
+    key_path: &str,
+    client_ca_path: &str,
+    require_client_cert: bool,
+) -> anyhow::Result<RustlsConfig> {
+    let cert_file = std::fs::File::open(cert_path)?;
+    let key_file = std::fs::File::open(key_path)?;
+    let ca_file = std::fs::File::open(client_ca_path)?;
+
+    let mut cert_reader = BufReader::new(cert_file);
+    let mut key_reader = BufReader::new(key_file);
+    let mut ca_reader = BufReader::new(ca_file);
+
+    let cert_chain: Vec<rustls::pki_types::CertificateDer> = certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut keys = pkcs8_private_keys(&mut key_reader)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if keys.is_empty() {
+        return Err(anyhow::anyhow!("No private keys found in key file"));
+    }
+
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(keys.remove(0));
+
+    let mut root_cert_store = RootCertStore::empty();
+    let ca_certs: Vec<rustls::pki_types::CertificateDer> = certs(&mut ca_reader)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for cert in ca_certs {
+        root_cert_store.add(cert)?;
+    }
+
+    let client_verifier = if require_client_cert {
+        WebPkiClientVerifier::builder(Arc::new(root_cert_store))
+            .build()?
+    } else {
+        WebPkiClientVerifier::builder(Arc::new(root_cert_store))
+            .build()?
+    };
+
+    let mut config = ServerConfig::builder()
+        .with_client_cert_verifier(client_verifier)
+        .with_single_cert(cert_chain, key)?;
+
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    Ok(RustlsConfig::from_config(Arc::new(config)))
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -92,8 +148,14 @@ async fn main() -> anyhow::Result<()> {
         let key_path = config.tls.key_path.as_ref()
             .ok_or_else(|| anyhow::anyhow!("TLS enabled but TLS_KEY_PATH not set"))?;
 
-        tracing::info!("Starting SMF server with TLS on https://{}", addr);
-        let tls_config = RustlsConfig::from_pem_file(cert_path, key_path).await?;
+        let tls_config = if let Some(client_ca_path) = config.tls.client_ca_path.as_ref() {
+            tracing::info!("Starting SMF server with mTLS on https://{}", addr);
+            tracing::info!("Client certificate verification enabled (required: {})", config.tls.require_client_cert);
+            build_mtls_config(cert_path, key_path, client_ca_path, config.tls.require_client_cert).await?
+        } else {
+            tracing::info!("Starting SMF server with TLS on https://{}", addr);
+            RustlsConfig::from_pem_file(cert_path, key_path).await?
+        };
 
         tokio::select! {
             result = axum_server::bind_rustls(addr, tls_config)

@@ -18,6 +18,7 @@ use crate::services::chf::ChfClient;
 use crate::services::upf_selection::UpfSelectionService;
 use crate::config::Config;
 use crate::models::SmContext;
+use crate::utils::http_client::build_mtls_client;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -82,11 +83,33 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         }
     };
 
+    let http_client = if let (Some(cert_path), Some(key_path)) =
+        (&config.tls.client_cert_path, &config.tls.client_key_path) {
+        match build_mtls_client(cert_path, key_path) {
+            Ok(client) => {
+                tracing::info!("mTLS client initialized for outbound requests");
+                Some(client)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize mTLS client: {}. Using default HTTP client.", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let (nrf_registration, nrf_discovery) = if let Some(nrf_uri) = &config.nrf_uri {
-        let nrf_client = Arc::new(NrfClient::new(
+        let mut nrf_client = NrfClient::new(
             nrf_uri.clone(),
             config.nf_instance_id.clone(),
-        ));
+        );
+
+        if let Some(client) = http_client.clone() {
+            nrf_client = nrf_client.with_client(client);
+        }
+
+        let nrf_client = Arc::new(nrf_client);
 
         let registration_service = Arc::new(NrfRegistrationService::new(
             nrf_client.clone(),
@@ -107,7 +130,11 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     let pcf_client = if let Some(pcf_uri) = &config.pcf_uri {
         tracing::info!("PCF client initialized with URI: {}", pcf_uri);
-        Some(Arc::new(PcfClient::new()))
+        let mut client = PcfClient::new();
+        if let Some(http_client) = http_client.clone() {
+            client = client.with_client(http_client);
+        }
+        Some(Arc::new(client))
     } else {
         tracing::warn!("PCF_URI not configured. SM policy control will be disabled.");
         None
@@ -115,7 +142,11 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     let udm_client = if let Some(udm_uri) = &config.udm_uri {
         tracing::info!("UDM client initialized with URI: {}", udm_uri);
-        Some(Arc::new(UdmClient::new()))
+        let mut client = UdmClient::new();
+        if let Some(http_client) = http_client.clone() {
+            client = client.with_client(http_client);
+        }
+        Some(Arc::new(client))
     } else {
         tracing::warn!("UDM_URI not configured. Subscriber data validation will be disabled.");
         None
@@ -123,7 +154,11 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     let udr_client = if nrf_discovery.is_some() {
         tracing::info!("UDR client initialized with NRF discovery");
-        Some(Arc::new(UdrClient::new()))
+        let mut client = UdrClient::new();
+        if let Some(http_client) = http_client.clone() {
+            client = client.with_client(http_client);
+        }
+        Some(Arc::new(client))
     } else {
         tracing::warn!("UDR client not initialized. NRF discovery required for UDR access.");
         None
@@ -131,7 +166,11 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     let chf_client = if let Some(chf_uri) = &config.chf_uri {
         tracing::info!("CHF client initialized with URI: {}", chf_uri);
-        Some(Arc::new(ChfClient::new()))
+        let mut client = ChfClient::new();
+        if let Some(http_client) = http_client.clone() {
+            client = client.with_client(http_client);
+        }
+        Some(Arc::new(client))
     } else {
         tracing::warn!("CHF_URI not configured. Charging will be disabled.");
         None
