@@ -98,3 +98,12 @@ pub enum HandoverCancelCause {
     HoFailureInTargetSystem,
     HoCancelled,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocatedHandoverResources {
+    pub target_tunnel_info: TunnelInfo,
+    pub allocated_qos_flow_ids: Vec<u8>,
+    pub failed_qos_flow_ids: Vec<u8>,
+    pub security_activated: bool,
+}

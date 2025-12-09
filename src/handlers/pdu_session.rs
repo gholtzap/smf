@@ -1303,28 +1303,100 @@ pub async fn handle_handover_request_ack(
         )));
     }
 
+    let mut update_doc = doc! {
+        "handover_state": mongodb::bson::to_bson(&HoState::Prepared).unwrap(),
+        "updated_at": mongodb::bson::DateTime::now()
+    };
+
+    let allocated_resources = if let Some(ref n2_sm_info) = payload.n2_sm_info {
+        match HandoverService::extract_allocated_handover_resources(&n2_sm_info.n2_info_content.ngap_data) {
+            Ok(resources) => {
+                tracing::info!(
+                    "Handover resource allocation successful for SUPI: {}, Allocated QoS flows: {:?}, Failed QoS flows: {:?}",
+                    sm_context.supi,
+                    resources.allocated_qos_flow_ids,
+                    resources.failed_qos_flow_ids
+                );
+
+                if !resources.failed_qos_flow_ids.is_empty() {
+                    tracing::warn!(
+                        "Some QoS flows failed to be allocated at target for SUPI: {}, Failed QFIs: {:?}",
+                        sm_context.supi,
+                        resources.failed_qos_flow_ids
+                    );
+                }
+
+                update_doc.insert(
+                    "an_tunnel_info",
+                    mongodb::bson::to_bson(&resources.target_tunnel_info).unwrap(),
+                );
+
+                let allocated_qos_flows: Vec<_> = sm_context
+                    .qos_flows
+                    .iter()
+                    .filter(|qf| resources.allocated_qos_flow_ids.contains(&qf.qfi))
+                    .cloned()
+                    .collect();
+
+                if !allocated_qos_flows.is_empty() {
+                    update_doc.insert(
+                        "qos_flows",
+                        mongodb::bson::to_bson(&allocated_qos_flows).unwrap(),
+                    );
+                    tracing::info!(
+                        "Updated QoS flows for SUPI: {} to reflect allocated resources: {:?}",
+                        sm_context.supi,
+                        allocated_qos_flows.iter().map(|qf| qf.qfi).collect::<Vec<_>>()
+                    );
+                }
+
+                if resources.security_activated {
+                    tracing::info!(
+                        "User plane security activated at target for SUPI: {}",
+                        sm_context.supi
+                    );
+                }
+
+                Some(resources)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to extract allocated handover resources for SUPI: {}: {}, continuing without resource coordination",
+                    sm_context.supi,
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        tracing::debug!(
+            "No N2 SM info provided in handover request ack for SUPI: {}, skipping resource extraction",
+            sm_context.supi
+        );
+        None
+    };
+
     collection
         .update_one(
             doc! { "_id": &sm_context_ref },
-            doc! {
-                "$set": {
-                    "handover_state": mongodb::bson::to_bson(&HoState::Prepared).unwrap(),
-                    "updated_at": mongodb::bson::DateTime::now()
-                }
-            }
+            doc! { "$set": update_doc }
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     tracing::info!(
-        "Handover state updated to Prepared for SUPI: {}, PDU Session ID: {}",
+        "Handover state updated to Prepared for SUPI: {}, PDU Session ID: {}, Resources allocated: {}",
         sm_context.supi,
-        sm_context.pdu_session_id
+        sm_context.pdu_session_id,
+        allocated_resources.is_some()
     );
 
     Ok(Json(serde_json::json!({
         "status": "success",
-        "handoverState": "PREPARED"
+        "handoverState": "PREPARED",
+        "allocatedQosFlows": allocated_resources.as_ref().map(|r| &r.allocated_qos_flow_ids),
+        "failedQosFlows": allocated_resources.as_ref().map(|r| &r.failed_qos_flow_ids),
+        "securityActivated": allocated_resources.as_ref().map(|r| r.security_activated).unwrap_or(false)
     })))
 }
 
