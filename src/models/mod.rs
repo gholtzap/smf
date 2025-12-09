@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode};
+use crate::types::up_security::UpSecurityContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,6 +206,7 @@ pub struct SmContext {
     pub handover_state: Option<HoState>,
     pub is_emergency: bool,
     pub request_type: Option<RequestType>,
+    pub up_security_context: Option<UpSecurityContext>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -238,6 +240,7 @@ impl SmContext {
             handover_state: None,
             is_emergency,
             request_type: create_data.request_type.clone(),
+            up_security_context: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

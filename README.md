@@ -399,6 +399,23 @@ The server will start on `http://localhost:8080` by default.
   - UP security policy framework (UpSecurityPolicy with preferred algorithms and protection requirements)
   - Algorithm conversion utilities (to/from u8, null algorithm detection)
   - Maximum integrity protected data rate types and conversion to kbps
+  - UP security algorithm selection logic based on UE capabilities and network policy
+    - Algorithm selection service with UE capability and network policy matching
+    - Support for both integrity (NIA0-3) and ciphering (NEA0-3) algorithm selection
+    - Null algorithm fallback for non-required protection scenarios
+    - Security level classification (None, Low, Medium, High) based on selected algorithms
+    - Validation of UE security capabilities
+  - UP security context management in SM context (selected algorithms, security activation state)
+    - UpSecurityContext storage in SM context
+    - Automatic UP security algorithm selection during PDU session creation
+    - Security activation tracking (integrity and confidentiality protection flags)
+    - Maximum integrity protected data rate configuration per session
+  - UP security policy configuration framework (preferred algorithms, mandatory protection)
+    - Predefined security policy profiles (high-security, standard-security, low-security, no-security)
+    - Slice-specific security policy selection (URLLC uses high security, MIoT uses low security)
+    - Emergency session security policy (low security for priority connectivity)
+    - Policy validation ensuring required algorithms are available
+    - Configurable algorithm preference order for optimal security
 
 ### Mobility & Handover
 - Xn-based intra-SMF handover (gNB-to-gNB with same SMF)
@@ -548,10 +565,7 @@ The server will start on `http://localhost:8080` by default.
   - Mutual TLS (mTLS) support
 - User plane encryption and integrity protection:
   - UP security capability negotiation with UE via AMF N1N2 messages
-  - UP security algorithm selection logic based on UE capabilities and network policy
-  - UP security context management in SM context (selected algorithms, security activation state)
   - Integration with PFCP for UP security enforcement (security parameters in session establishment/modification)
-  - UP security policy configuration framework (preferred algorithms, mandatory protection)
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control

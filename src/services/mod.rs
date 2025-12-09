@@ -25,3 +25,5 @@ pub mod udr;
 pub mod chf;
 pub mod emergency;
 pub mod oauth2_client;
+pub mod up_security_selection;
+pub mod up_security_config;

@@ -17,6 +17,9 @@ use crate::services::ssc_behavior::SscBehaviorService;
 use crate::services::ssc_mode2::SscMode2Service;
 use crate::services::ssc_mode3::SscMode3Service;
 use crate::services::emergency::EmergencyService;
+use crate::services::up_security_selection::UpSecuritySelector;
+use crate::services::up_security_config::UpSecurityConfigService;
+use crate::types::up_security::UeSecurityCapabilities;
 use std::sync::Arc;
 
 pub async fn create_pdu_session(
@@ -169,6 +172,37 @@ pub async fn create_pdu_session(
         selected_ssc_mode.as_str(),
         payload.supi
     );
+
+    let ue_capabilities = UeSecurityCapabilities::default();
+    let network_policy = if sm_context.is_emergency {
+        UpSecurityConfigService::get_policy_for_emergency()
+    } else {
+        UpSecurityConfigService::get_policy_for_slice(
+            payload.s_nssai.sst,
+            payload.s_nssai.sd.as_deref()
+        )
+    };
+
+    match UpSecuritySelector::select_algorithms(&ue_capabilities, &network_policy) {
+        Ok(up_security_context) => {
+            sm_context.up_security_context = Some(up_security_context.clone());
+            tracing::info!(
+                "UP security algorithms selected for SUPI: {} - Integrity: {:?} (activated: {}), Ciphering: {:?} (activated: {})",
+                payload.supi,
+                up_security_context.integrity_protection_algorithm,
+                up_security_context.integrity_protection_activated,
+                up_security_context.ciphering_algorithm,
+                up_security_context.confidentiality_protection_activated
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to select UP security algorithms for SUPI: {}: {}, continuing without UP security",
+                payload.supi,
+                e
+            );
+        }
+    }
 
     let default_5qi = if sm_context.is_emergency {
         let emergency_5qi = EmergencyService::get_emergency_priority_5qi();
