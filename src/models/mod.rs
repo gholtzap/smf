@@ -207,6 +207,7 @@ pub struct SmContext {
     pub is_emergency: bool,
     pub request_type: Option<RequestType>,
     pub up_security_context: Option<UpSecurityContext>,
+    pub session_ambr: Option<Ambr>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -241,6 +242,7 @@ impl SmContext {
             is_emergency,
             request_type: create_data.request_type.clone(),
             up_security_context: None,
+            session_ambr: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

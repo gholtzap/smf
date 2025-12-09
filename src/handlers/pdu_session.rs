@@ -20,6 +20,7 @@ use crate::services::ssc_mode3::SscMode3Service;
 use crate::services::emergency::EmergencyService;
 use crate::services::up_security_selection::UpSecuritySelector;
 use crate::services::up_security_config::UpSecurityConfigService;
+use crate::services::ambr_enforcement::AmbrEnforcementService;
 use crate::types::up_security::UeSecurityCapabilities;
 use std::sync::Arc;
 
@@ -275,6 +276,25 @@ pub async fn create_pdu_session(
 
     sm_context.mtu = ip_allocation.mtu.or(dnn_config.mtu);
 
+    sm_context.session_ambr = Some(if let Some(ref sub_ambr) = subscriber_ambr {
+        Ambr {
+            uplink: sub_ambr.uplink.clone(),
+            downlink: sub_ambr.downlink.clone(),
+        }
+    } else {
+        Ambr {
+            uplink: dnn_config.default_session_ambr_uplink.clone(),
+            downlink: dnn_config.default_session_ambr_downlink.clone(),
+        }
+    });
+
+    AmbrEnforcementService::log_ambr_enforcement(
+        &payload.supi,
+        payload.pdu_session_id,
+        &sm_context.session_ambr,
+        "PDU session creation",
+    );
+
     let ue_ipv4 = if !ip_allocation.ip_address.is_empty() {
         Some(ip_allocation.ip_address.parse().map_err(|e| {
             AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
@@ -512,17 +532,7 @@ pub async fn create_pdu_session(
         n1_sm_info_to_ue: None,
         eps_pdn_cnx_info: None,
         supported_features: None,
-        session_ambr: Some(if let Some(ref sub_ambr) = subscriber_ambr {
-            Ambr {
-                uplink: sub_ambr.uplink.clone(),
-                downlink: sub_ambr.downlink.clone(),
-            }
-        } else {
-            Ambr {
-                uplink: dnn_config.default_session_ambr_uplink.clone(),
-                downlink: dnn_config.default_session_ambr_downlink.clone(),
-            }
-        }),
+        session_ambr: sm_context.session_ambr.clone(),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         dnai_list: None,
@@ -608,6 +618,23 @@ async fn handle_path_switch(
             sm_context.supi
         );
     }
+
+    AmbrEnforcementService::validate_ambr_preservation(
+        &sm_context.session_ambr,
+        &payload.session_ambr,
+    ).map_err(AppError::ValidationError)?;
+
+    let effective_ambr = AmbrEnforcementService::get_effective_ambr(
+        &sm_context.session_ambr,
+        &payload.session_ambr,
+    );
+
+    AmbrEnforcementService::log_ambr_enforcement(
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        &effective_ambr,
+        "path switch (Xn-based handover)",
+    );
 
     tracing::info!(
         "Path switch request received for SUPI: {}, PDU Session ID: {}, SM Context: {}, SSC Mode: {}",
@@ -775,6 +802,19 @@ async fn handle_path_switch(
         );
     }
 
+    if let Some(ref ambr) = effective_ambr {
+        update_doc.get_document_mut("$set").unwrap().insert(
+            "session_ambr",
+            mongodb::bson::to_bson(&ambr).unwrap()
+        );
+        tracing::info!(
+            "Updated session AMBR for SUPI: {} during path switch: UL={}, DL={}",
+            sm_context.supi,
+            ambr.uplink,
+            ambr.downlink
+        );
+    }
+
     collection
         .update_one(doc! { "_id": &sm_context_ref }, update_doc)
         .await
@@ -792,7 +832,7 @@ async fn handle_path_switch(
         n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
         eps_bearer_info: None,
         supported_features: None,
-        session_ambr: payload.session_ambr,
+        session_ambr: effective_ambr,
         cn_tunnel_info,
         additional_cn_tunnel_info: None,
     };
@@ -1201,6 +1241,13 @@ pub async fn handle_handover_required(
     HandoverService::validate_handover_state(&sm_context.state)
         .map_err(AppError::ValidationError)?;
 
+    AmbrEnforcementService::log_ambr_enforcement(
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        &sm_context.session_ambr,
+        "N2-based handover preparation",
+    );
+
     if sm_context.ssc_mode == SscMode::Mode1 {
         if let Some(ref pdu_addr) = sm_context.pdu_address {
             tracing::info!(
@@ -1426,6 +1473,13 @@ pub async fn handle_handover_notify(
 
     HandoverService::validate_ho_state_for_notify(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
+
+    AmbrEnforcementService::log_ambr_enforcement(
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        &sm_context.session_ambr,
+        "N2-based handover completion",
+    );
 
     tracing::info!(
         "Handover notify received for SUPI: {}, PDU Session ID: {}, SM Context: {}, HO State: {:?}",

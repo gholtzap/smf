@@ -449,6 +449,17 @@ The server will start on `http://localhost:8080` by default.
   - QoS flow summary reporting (GBR/Non-GBR/Delay-GBR counts, critical flow counts)
   - Integration with handover request acknowledgment handler
   - Integration with handover notify handler for continuity validation
+- Session AMBR enforcement during handover
+  - Session AMBR storage in SM context
+  - AMBR enforcement service for validation and tracking
+  - AMBR preservation validation during handover
+  - Effective AMBR calculation (session AMBR vs update AMBR)
+  - AMBR enforcement logging for all handover types
+  - AMBR validation and logging during Xn-based handover (path switch)
+  - AMBR validation and logging during N2-based handover (preparation and completion)
+  - AMBR bitrate parsing with unit conversion (Gbps/Mbps/Kbps/bps)
+  - AMBR limits validation (non-zero uplink and downlink)
+  - Integration with PDU session creation and handover handlers
 - N2-based handover
   - Handover required notification handling from source AMF
   - Target identification and validation (gNB ID, TAI)
@@ -586,7 +597,6 @@ The server will start on `http://localhost:8080` by default.
     - UE context transfer request/response between SMFs
   - Inter-SMF handover (SMF relocation during handover)
   - UPF relocation and selection during handover
-  - Session AMBR enforcement during handover
 
 ### Security
 - Service-based interface security:
