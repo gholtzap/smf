@@ -564,6 +564,32 @@ The server will start on `http://localhost:8080` by default.
     - UPF relocation evaluation during Xn-based handover (path switch)
     - Automatic UPF selection on handover when relocation required
     - UPF relocation logging and monitoring throughout handover lifecycle
+- Inter-SMF handover context transfer infrastructure
+  - SM Context Transfer Data Models (SmContextTransferRequest/Response structures)
+    - SmContextTransferRequest data model with transfer ID, cause, and complete SM context
+    - SmContextTransferResponse data model with acceptance status and failure reasons
+    - SmContextData serialization structure for complete session state transfer
+    - TransferredSubscriptionData model for subscriber information transfer
+    - Transfer cause enumeration (InterSmfHandover, SmfRelocation, LoadBalancing, NetworkOptimization, UeMovedToTargetArea, SourceSmfFailure, PolicyChange)
+    - Transfer response cause enumeration (Success, InsufficientResources, InvalidContext, DnnNotSupported, SliceNotSupported, QosNotSupported, SecuritySetupFailed, UpfNotAvailable, InternalError, TemporarilyUnavailable)
+    - Failed resource tracking with resource type and failure cause
+    - Transfer acknowledgment and cancellation message types
+  - SM context validation framework
+    - Transfer request validation (SUPI, target SMF URI, transfer ID validation)
+    - Context data validation (DNN, S-NSSAI, QoS flows, AMBR validation)
+    - Transfer response validation (transfer ID, target SMF ID, context reference)
+    - QFI range validation (1-63) for all QoS flows
+    - Session AMBR uplink/downlink validation
+  - Target SMF capability checking
+    - TargetSmfCapabilities data model for capability advertisement
+    - Capability compatibility validation between source context and target SMF
+    - DNN support validation
+    - S-NSSAI support validation
+    - Maximum 5QI support checking
+    - QoS flow count limit validation
+    - Emergency session support validation
+    - PDU session type compatibility checking
+    - SSC mode compatibility checking
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -641,9 +667,12 @@ The server will start on `http://localhost:8080` by default.
 
 ### Session Management
 - Session continuity and mobility (handover procedures):
-  - N2-based handover completion:
-    - UE context transfer request/response between SMFs
-  - Inter-SMF handover (SMF relocation during handover)
+  - Inter-SMF handover (SMF relocation during handover):
+    - Source SMF Context Preparation (serialize and prepare SM context for transfer)
+    - Target SMF Context Reception (receive, deserialize, validate and apply SM context)
+    - N16 Interface Implementation (SMF-to-SMF context transfer endpoints)
+    - PFCP Session Relocation (teardown at source UPF, setup at target UPF)
+    - AMF Coordination for SMF Change (AMF-initiated SMF selection and context forwarding)
 
 ### Security
 - Service-based interface security:

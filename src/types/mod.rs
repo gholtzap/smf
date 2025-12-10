@@ -23,6 +23,7 @@ pub mod up_security;
 pub mod qos_flow_mapping;
 pub mod nas;
 pub mod upf_selection;
+pub mod sm_context_transfer;
 
 use serde::{Deserialize, Serialize};
 
@@ -47,6 +48,7 @@ pub use up_security::*;
 pub use qos_flow_mapping::*;
 pub use nas::*;
 pub use upf_selection::*;
+pub use sm_context_transfer::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
