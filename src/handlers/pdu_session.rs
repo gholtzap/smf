@@ -1979,7 +1979,7 @@ pub async fn receive_context_transfer(
 
     let target_service = ContextTransferTarget::new(
         state.db.clone(),
-        Arc::new(pfcp_client.clone()),
+        pfcp_client.clone(),
         nf_instance_id,
     );
 

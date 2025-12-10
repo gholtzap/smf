@@ -618,6 +618,21 @@ The server will start on `http://localhost:8080` by default.
     - UP security context transfer and enforcement
     - QoS flow and packet filter transfer
     - Session AMBR transfer and enforcement
+  - Source SMF Context Transfer (N16 Interface Implementation)
+    - N16 HTTP client for SMF-to-SMF communication
+    - SM context transfer request transmission to target SMF
+    - Transfer response validation and processing
+    - Transfer acknowledgment endpoint and handling
+    - Transfer cancellation support with cause indication
+    - Inter-SMF handover orchestration service
+    - Source context preparation and validation
+    - PFCP session deletion at source UPF after successful transfer
+    - Source SM context cleanup from database
+    - Automatic resource release tracking and reporting
+    - Target SMF health checking before transfer
+    - Transfer retry logic for temporary failures
+    - Support for transfer causes (handover, load balancing, network optimization, UE movement, source failure, policy change)
+    - Integration with UPF relocation detection
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -696,8 +711,6 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - Inter-SMF handover (SMF relocation during handover):
-    - N16 Interface Implementation (SMF-to-SMF outbound context transfer client)
-    - PFCP Session Relocation (teardown at source UPF, setup at target UPF)
     - AMF Coordination for SMF Change (AMF-initiated SMF selection and context forwarding)
 
 ### Security

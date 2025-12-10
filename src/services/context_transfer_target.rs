@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 pub struct ContextTransferTarget {
     db: Database,
-    pfcp_client: Arc<PfcpClient>,
+    pfcp_client: PfcpClient,
     target_smf_id: String,
     capabilities: TargetSmfCapabilities,
 }
@@ -22,7 +22,7 @@ pub struct ContextTransferTarget {
 impl ContextTransferTarget {
     pub fn new(
         db: Database,
-        pfcp_client: Arc<PfcpClient>,
+        pfcp_client: PfcpClient,
         target_smf_id: String,
     ) -> Self {
         Self {
@@ -35,7 +35,7 @@ impl ContextTransferTarget {
 
     pub fn with_capabilities(
         db: Database,
-        pfcp_client: Arc<PfcpClient>,
+        pfcp_client: PfcpClient,
         target_smf_id: String,
         capabilities: TargetSmfCapabilities,
     ) -> Self {
@@ -435,7 +435,7 @@ mod tests {
     fn test_deserialize_context() {
         let context_data = create_test_context_data();
         let db = mongodb::Database::default();
-        let pfcp_client = Arc::new(PfcpClient::default());
+        let pfcp_client = PfcpClient::default();
         let target = ContextTransferTarget::new(db, pfcp_client, "target-smf-001".to_string());
 
         let result = target.deserialize_context(&context_data);
