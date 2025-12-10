@@ -590,6 +590,18 @@ The server will start on `http://localhost:8080` by default.
     - Emergency session support validation
     - PDU session type compatibility checking
     - SSC mode compatibility checking
+  - Source SMF Context Preparation
+    - SM context serialization to transfer-ready format (SmContextData)
+    - SM context transfer request creation and validation
+    - Transfer ID generation for tracking
+    - Context state validation before transfer (Active/ModificationPending states)
+    - PFCP session and PDU address validation checks
+    - QoS flow validation before transfer
+    - Subscription data extraction for transfer
+    - Transfer cause determination (handover, load balancing, network optimization)
+    - Inter-SMF handover trigger detection based on UPF changes
+    - Comprehensive transfer preparation logging
+    - Unit tests for all preparation workflows
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -668,7 +680,6 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - Inter-SMF handover (SMF relocation during handover):
-    - Source SMF Context Preparation (serialize and prepare SM context for transfer)
     - Target SMF Context Reception (receive, deserialize, validate and apply SM context)
     - N16 Interface Implementation (SMF-to-SMF context transfer endpoints)
     - PFCP Session Relocation (teardown at source UPF, setup at target UPF)

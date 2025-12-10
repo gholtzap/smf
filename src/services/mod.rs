@@ -30,3 +30,4 @@ pub mod up_security_config;
 pub mod qos_flow_mapping;
 pub mod ambr_enforcement;
 pub mod upf_selection;
+pub mod context_transfer_source;
