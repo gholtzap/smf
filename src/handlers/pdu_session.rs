@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
+use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -21,6 +22,7 @@ use crate::services::emergency::EmergencyService;
 use crate::services::up_security_selection::UpSecuritySelector;
 use crate::services::up_security_config::UpSecurityConfigService;
 use crate::services::ambr_enforcement::AmbrEnforcementService;
+use crate::services::context_transfer_target::ContextTransferTarget;
 use crate::types::up_security::UeSecurityCapabilities;
 use std::sync::Arc;
 
@@ -1954,4 +1956,43 @@ pub async fn handle_handover_cancel(
         "handoverState": "CANCELLED",
         "cause": format!("{:?}", payload.cause).to_uppercase()
     })))
+}
+
+pub async fn receive_context_transfer(
+    State(state): State<AppState>,
+    Json(payload): Json<SmContextTransferRequest>,
+) -> Result<Json<SmContextTransferResponse>, AppError> {
+    tracing::info!(
+        "Receiving SM context transfer request - Transfer ID: {}, SUPI: {}, PDU Session ID: {}",
+        payload.transfer_id,
+        payload.supi,
+        payload.pdu_session_id
+    );
+
+    let pfcp_client = state
+        .pfcp_client
+        .as_ref()
+        .ok_or_else(|| AppError::ValidationError("PFCP client not initialized".to_string()))?;
+
+    let nf_instance_id = std::env::var("NF_INSTANCE_ID")
+        .unwrap_or_else(|_| "smf-instance-001".to_string());
+
+    let target_service = ContextTransferTarget::new(
+        state.db.clone(),
+        Arc::new(pfcp_client.clone()),
+        nf_instance_id,
+    );
+
+    let response = target_service
+        .receive_and_process_transfer(payload)
+        .await
+        .map_err(|e| AppError::ValidationError(e))?;
+
+    tracing::info!(
+        "Context transfer processing completed - Transfer ID: {}, Accepted: {}",
+        response.transfer_id,
+        response.accepted
+    );
+
+    Ok(Json(response))
 }

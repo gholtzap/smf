@@ -602,6 +602,22 @@ The server will start on `http://localhost:8080` by default.
     - Inter-SMF handover trigger detection based on UPF changes
     - Comprehensive transfer preparation logging
     - Unit tests for all preparation workflows
+  - Target SMF Context Reception
+    - N16 interface endpoint for receiving SM context transfer requests (POST /nsmf-pdusession/v1/sm-contexts/transfer)
+    - Context transfer request reception and validation
+    - Target SMF capability compatibility checking with source context
+    - SM context deserialization from SmContextData to SmContext
+    - Resource availability validation (PDU address, PFCP session, QoS flows)
+    - PFCP session establishment at target UPF with transferred session ID
+    - SM context storage in target SMF database with new context reference
+    - Transfer response generation with acceptance status and failure reasons
+    - Failed resource tracking and reporting (QoS flows, policy, charging)
+    - Automatic cleanup on transfer failure
+    - Context transfer rejection with detailed cause indication
+    - Support for emergency session transfers
+    - UP security context transfer and enforcement
+    - QoS flow and packet filter transfer
+    - Session AMBR transfer and enforcement
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -680,8 +696,7 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - Inter-SMF handover (SMF relocation during handover):
-    - Target SMF Context Reception (receive, deserialize, validate and apply SM context)
-    - N16 Interface Implementation (SMF-to-SMF context transfer endpoints)
+    - N16 Interface Implementation (SMF-to-SMF outbound context transfer client)
     - PFCP Session Relocation (teardown at source UPF, setup at target UPF)
     - AMF Coordination for SMF Change (AMF-initiated SMF selection and context forwarding)
 
