@@ -643,6 +643,16 @@ The server will start on `http://localhost:8080` by default.
     - Support for AMF-coordinated SMF change causes (inter-SMF handover, SMF change, SMF relocation, AMF-initiated change)
     - Extended PduSessionCreateData model with source SM context fields
     - Integration with existing context transfer infrastructure
+  - Inter-SMF handover orchestration during mobility events
+    - Automatic inter-SMF handover triggering during N2-based handover when UPF relocation requires SMF change
+    - Automatic inter-SMF handover triggering during Xn-based handover (path switch) when UPF relocation requires SMF change
+    - UPF-to-SMF mapping detection using InterSmfHandoverService
+    - Inter-SMF handover service initialization in AppState with N16Client and PFCP client
+    - Complete SM context transfer to target SMF via N16 interface during handover
+    - Graceful fallback to local UPF update when inter-SMF handover fails or is rejected
+    - Handover state machine integration with inter-SMF handover flow
+    - AMF notification of SMF change during handover completion
+    - Source SMF resource cleanup after successful inter-SMF handover (PFCP session and SM context deletion)
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -717,10 +727,6 @@ The server will start on `http://localhost:8080` by default.
 - 3GPP data models and types
 - Session context structures
 - Network slice selection data
-
-### Session Management
-- Session continuity and mobility (handover procedures):
-  - Inter-SMF handover (SMF relocation during handover):
 
 ### Security
 - Service-based interface security:

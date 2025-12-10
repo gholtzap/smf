@@ -16,6 +16,8 @@ use crate::services::udm::UdmClient;
 use crate::services::udr::UdrClient;
 use crate::services::chf::ChfClient;
 use crate::services::upf_selection::UpfSelectionService;
+use crate::services::inter_smf_handover::InterSmfHandoverService;
+use crate::services::n16_client::N16Client;
 use crate::config::Config;
 use crate::models::SmContext;
 use crate::utils::http_client::build_mtls_client;
@@ -36,6 +38,7 @@ pub struct AppState {
     pub dnn_selector: Arc<DnnSelector>,
     pub ssc_selector: Arc<SscModeSelector>,
     pub upf_selection_service: Arc<UpfSelectionService>,
+    pub inter_smf_handover_service: Option<Arc<InterSmfHandoverService>>,
 }
 
 pub async fn init(config: &Config) -> anyhow::Result<AppState> {
@@ -191,6 +194,21 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let upf_selection_service = Arc::new(UpfSelectionService::new(db.clone()));
     tracing::info!("UPF selection service initialized");
 
+    let inter_smf_handover_service = if let Some(ref pfcp) = pfcp_client {
+        let n16_client = Arc::new(N16Client::new(config.nf_instance_id.clone()));
+        let service = Arc::new(InterSmfHandoverService::new(
+            n16_client,
+            pfcp.clone(),
+            db.clone(),
+            config.nf_instance_id.clone(),
+        ));
+        tracing::info!("Inter-SMF handover service initialized");
+        Some(service)
+    } else {
+        tracing::warn!("Inter-SMF handover service not initialized. PFCP client required.");
+        None
+    };
+
     Ok(AppState {
         db,
         notification_service,
@@ -206,6 +224,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         dnn_selector,
         ssc_selector,
         upf_selection_service,
+        inter_smf_handover_service,
     })
 }
 

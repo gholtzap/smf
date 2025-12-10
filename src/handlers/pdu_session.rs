@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
-use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse};
+use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -745,10 +745,71 @@ async fn handle_path_switch(
         if let Ok(decision) = relocation_decision {
             if decision.should_relocate {
                 tracing::info!(
-                    "UPF relocation required during path switch for SUPI: {}, Reason: {:?}",
+                    "UPF relocation required during path switch for SUPI: {}, Reason: {:?}, Target UPF: {:?}",
                     sm_context.supi,
-                    decision.reason
+                    decision.reason,
+                    decision.target_upf_address
                 );
+
+                if let Some(ref target_upf) = decision.target_upf_address {
+                    if let Some(ref inter_smf_service) = state.inter_smf_handover_service {
+                        if inter_smf_service.should_trigger_handover(Some(current_upf_address), target_upf) {
+                            tracing::info!(
+                                "Inter-SMF handover required during path switch - Current UPF: {}, Target UPF: {} requires different SMF for SUPI: {}",
+                                current_upf_address,
+                                target_upf,
+                                sm_context.supi
+                            );
+
+                            let target_smf_uri = format!("http://{}/nsmf-pdusession/v1", target_upf);
+                            let transfer_cause = TransferCause::InterSmfHandover;
+
+                            match inter_smf_service.initiate_handover(
+                                &sm_context,
+                                &target_smf_uri,
+                                transfer_cause,
+                                None,
+                                None,
+                            ).await {
+                                Ok(response) if response.accepted => {
+                                    tracing::info!(
+                                        "Inter-SMF handover successful during path switch for SUPI: {}, Target Context: {:?}",
+                                        sm_context.supi,
+                                        response.target_sm_context_ref
+                                    );
+                                    return Ok(Json(PduSessionUpdatedData {
+                                        n2_sm_info: Some(N2SmInfo {
+                                            content_id: "smf-changed".to_string(),
+                                            n2_info_content: N2InfoContent {
+                                                ngap_ie_type: NgapIeType::PathSwitchReqAck,
+                                                ngap_data: format!("smf_changed:{}", target_smf_uri),
+                                            },
+                                        }),
+                                        n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
+                                        n1_sm_msg: None,
+                                        session_ambr: sm_context.session_ambr.clone(),
+                                        qos_flows_add_mod_list: None,
+                                        qos_flows_rel_list: None,
+                                    }));
+                                }
+                                Ok(response) => {
+                                    tracing::warn!(
+                                        "Inter-SMF handover rejected during path switch for SUPI: {}, Cause: {:?}. Continuing with local path switch.",
+                                        sm_context.supi,
+                                        response.cause
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Inter-SMF handover failed during path switch for SUPI: {}, Error: {}. Continuing with local path switch.",
+                                        sm_context.supi,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1665,14 +1726,73 @@ pub async fn handle_handover_notify(
                         decision.target_upf_address
                     );
 
-                    if let Some(target_upf) = decision.target_upf_address {
-                        update_doc.insert("upf_address", target_upf.clone());
-                        tracing::info!(
-                            "UPF relocation completed: {} -> {} for SUPI: {}",
-                            current_upf_address,
-                            target_upf,
-                            sm_context.supi
-                        );
+                    if let Some(ref target_upf) = decision.target_upf_address {
+                        if let Some(ref inter_smf_service) = state.inter_smf_handover_service {
+                            if inter_smf_service.should_trigger_handover(Some(current_upf_address), target_upf) {
+                                tracing::info!(
+                                    "Inter-SMF handover required - Current UPF: {}, Target UPF: {} requires different SMF for SUPI: {}",
+                                    current_upf_address,
+                                    target_upf,
+                                    sm_context.supi
+                                );
+
+                                let target_smf_uri = format!("http://{}/nsmf-pdusession/v1", target_upf);
+                                let transfer_cause = TransferCause::InterSmfHandover;
+
+                                match inter_smf_service.initiate_handover(
+                                    &sm_context,
+                                    &target_smf_uri,
+                                    transfer_cause,
+                                    None,
+                                    None,
+                                ).await {
+                                    Ok(response) if response.accepted => {
+                                        tracing::info!(
+                                            "Inter-SMF handover successful for SUPI: {}, Target Context: {:?}",
+                                            sm_context.supi,
+                                            response.target_sm_context_ref
+                                        );
+                                        return Ok(Json(serde_json::json!({
+                                            "status": "smf_changed",
+                                            "target_smf": target_smf_uri,
+                                            "target_context_ref": response.target_sm_context_ref
+                                        })));
+                                    }
+                                    Ok(response) => {
+                                        tracing::warn!(
+                                            "Inter-SMF handover rejected for SUPI: {}, Cause: {:?}. Continuing with local UPF update.",
+                                            sm_context.supi,
+                                            response.cause
+                                        );
+                                        update_doc.insert("upf_address", target_upf.clone());
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Inter-SMF handover failed for SUPI: {}, Error: {}. Continuing with local UPF update.",
+                                            sm_context.supi,
+                                            e
+                                        );
+                                        update_doc.insert("upf_address", target_upf.clone());
+                                    }
+                                }
+                            } else {
+                                update_doc.insert("upf_address", target_upf.clone());
+                                tracing::info!(
+                                    "UPF relocation completed (no SMF change required): {} -> {} for SUPI: {}",
+                                    current_upf_address,
+                                    target_upf,
+                                    sm_context.supi
+                                );
+                            }
+                        } else {
+                            update_doc.insert("upf_address", target_upf.clone());
+                            tracing::info!(
+                                "UPF relocation completed: {} -> {} for SUPI: {} (inter-SMF handover not available)",
+                                current_upf_address,
+                                target_upf,
+                                sm_context.supi
+                            );
+                        }
                     } else {
                         let new_selection_result = state.upf_selection_service.select_upf(&crate::types::UpfSelectionCriteria {
                             ue_location: payload.ue_location.clone(),
