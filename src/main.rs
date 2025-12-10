@@ -131,7 +131,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         .route("/nnrf-nfm/v1/nf-status-notify", post(handlers::nrf_notification::handle_nf_status_notification))
         .route("/namf-callback/v1/ue-contexts/:ueId/n1-n2-transfers/:transactionId/notify", post(handlers::amf_callback::handle_n1n2_transfer_status))
-        .route("/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify", post(handlers::amf_callback::handle_n2_info_notify));
+        .route("/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify", post(handlers::amf_callback::handle_n2_info_notify))
+        .route("/nsmf-pdusession/v1/sm-contexts/retrieve", post(handlers::amf_smf_coordination::retrieve_sm_context_for_amf))
+        .route("/nsmf-pdusession/v1/sm-contexts/release-notify", post(handlers::amf_smf_coordination::release_sm_context_on_transfer));
 
     let app = Router::new()
         .merge(protected_routes)

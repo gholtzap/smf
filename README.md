@@ -633,6 +633,16 @@ The server will start on `http://localhost:8080` by default.
     - Transfer retry logic for temporary failures
     - Support for transfer causes (handover, load balancing, network optimization, UE movement, source failure, policy change)
     - Integration with UPF relocation detection
+  - AMF Coordination for SMF Change (AMF-initiated SMF selection and context forwarding)
+    - AMF-coordinated SMF change data models (SmContextRetrieveRequest/Response, SmContextReleaseNotification)
+    - Source SMF context retrieval endpoint for AMF (POST /nsmf-pdusession/v1/sm-contexts/retrieve)
+    - Source SMF context preparation and serialization for AMF forwarding
+    - SM context release notification endpoint (POST /nsmf-pdusession/v1/sm-contexts/release-notify)
+    - Source SMF resource cleanup on AMF notification (PFCP session and SM context deletion)
+    - Target SMF context creation with source context data
+    - Support for AMF-coordinated SMF change causes (inter-SMF handover, SMF change, SMF relocation, AMF-initiated change)
+    - Extended PduSessionCreateData model with source SM context fields
+    - Integration with existing context transfer infrastructure
 
 ### NGAP Message Parsing Infrastructure
 - ASN.1 codec dependency and configuration
@@ -711,7 +721,6 @@ The server will start on `http://localhost:8080` by default.
 ### Session Management
 - Session continuity and mobility (handover procedures):
   - Inter-SMF handover (SMF relocation during handover):
-    - AMF Coordination for SMF Change (AMF-initiated SMF selection and context forwarding)
 
 ### Security
 - Service-based interface security:

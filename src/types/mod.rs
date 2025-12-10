@@ -24,6 +24,7 @@ pub mod qos_flow_mapping;
 pub mod nas;
 pub mod upf_selection;
 pub mod sm_context_transfer;
+pub mod amf_smf_coordination;
 
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,7 @@ pub use qos_flow_mapping::*;
 pub use nas::*;
 pub use upf_selection::*;
 pub use sm_context_transfer::*;
+pub use amf_smf_coordination::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

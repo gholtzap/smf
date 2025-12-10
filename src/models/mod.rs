@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode};
 use crate::types::up_security::{UpSecurityContext, UeSecurityCapabilities};
+use crate::types::sm_context_transfer::{SmContextData, TransferCause};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +44,9 @@ pub struct PduSessionCreateData {
     pub always_on_requested: Option<bool>,
     pub ssc_mode: Option<String>,
     pub pdu_session_type: Option<PduSessionType>,
+    pub source_sm_context: Option<SmContextData>,
+    pub source_smf_id: Option<String>,
+    pub transfer_cause: Option<TransferCause>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
