@@ -194,6 +194,15 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let upf_selection_service = Arc::new(UpfSelectionService::new(db.clone()));
     tracing::info!("UPF selection service initialized");
 
+    let cert_renewal_service = Arc::new(crate::services::certificate_renewal::CertificateRenewalService::with_defaults(
+        Arc::new(db.clone())
+    ));
+    let cert_renewal_monitor = cert_renewal_service.clone();
+    tokio::spawn(async move {
+        cert_renewal_monitor.start_monitoring().await;
+    });
+    tracing::info!("Certificate renewal monitoring service started");
+
     let inter_smf_handover_service = if let Some(ref pfcp) = pfcp_client {
         let n16_client = Arc::new(N16Client::new(config.nf_instance_id.clone()));
         let service = Arc::new(InterSmfHandoverService::new(
@@ -258,6 +267,24 @@ async fn init_indexes(db: &Database) -> anyhow::Result<()> {
     certificates_collection.create_index(cert_expiration_index).await?;
 
     tracing::info!("Created index on not_after for certificates");
+
+    let renewal_notifications_collection = db.collection::<crate::types::CertificateRenewalNotification>("certificate_renewal_notifications");
+
+    let renewal_cert_id_index = IndexModel::builder()
+        .keys(doc! { "certificate_id": 1, "acknowledged": 1 })
+        .build();
+
+    renewal_notifications_collection.create_index(renewal_cert_id_index).await?;
+
+    tracing::info!("Created index on (certificate_id, acknowledged) for renewal notifications");
+
+    let renewal_severity_index = IndexModel::builder()
+        .keys(doc! { "severity": -1, "created_at": 1 })
+        .build();
+
+    renewal_notifications_collection.create_index(renewal_severity_index).await?;
+
+    tracing::info!("Created index on (severity, created_at) for renewal notifications");
 
     Ok(())
 }

@@ -742,6 +742,19 @@ The server will start on `http://localhost:8080` by default.
       - Batch expiration checking across multiple certificates
       - Certificate renewal detection with configurable thresholds
       - Validation result reporting with errors and warnings
+    - Certificate lifecycle tracking:
+      - Renewal notification service with configurable thresholds
+        - Background monitoring service that periodically checks certificate expiration
+        - Configurable severity levels (Info, Warning, Critical, Expired)
+        - Default thresholds: Critical (7 days), Warning (30 days), Info (60 days)
+        - Automatic notification generation for certificates requiring renewal
+        - Notification persistence in MongoDB with acknowledgment tracking
+        - Query notifications by severity, acknowledgment status, or certificate
+        - Notification summary reporting (total, unacknowledged, by severity)
+        - Automatic cleanup of acknowledged notifications (30-day retention)
+        - Database indexes for efficient notification queries
+        - Check interval configurable (default: 24 hours)
+        - Integration with existing certificate validation infrastructure
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -759,10 +772,22 @@ The server will start on `http://localhost:8080` by default.
 ### Security
 - Service-based interface security:
   - Certificate management:
-    - Certificate lifecycle tracking (renewal dates, revocation status)
-    - Certificate rotation and automatic renewal
-    - CRL (Certificate Revocation List) support
-    - OCSP (Online Certificate Status Protocol) support
+    - Certificate lifecycle tracking:
+      - Certificate expiration monitoring and alerting
+      - Renewal scheduling and tracking
+      - Certificate usage tracking and audit logging
+    - Certificate rotation:
+      - Manual certificate rotation workflow
+      - Automatic certificate rotation scheduler
+      - Zero-downtime certificate replacement
+      - Rollback support for failed rotations
+    - Certificate revocation checking:
+      - CRL (Certificate Revocation List) download and caching
+      - CRL parsing and validation
+      - Certificate revocation status checking
+      - OCSP (Online Certificate Status Protocol) client
+      - OCSP stapling support
+      - Revocation cache management
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control
