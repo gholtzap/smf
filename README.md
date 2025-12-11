@@ -730,6 +730,18 @@ The server will start on `http://localhost:8080` by default.
       - Support for PEM-encoded certificates, private keys, and certificate chains
       - Certificate metadata tracking (subject, issuer, serial number, fingerprint)
       - Key type support (RSA, ECDSA, Ed25519) with key size tracking
+    - Certificate validation utilities:
+      - Certificate expiration validation with warning thresholds
+      - Certificate fingerprint verification
+      - Certificate chain validation (leaf to intermediate to root)
+      - Chain integrity checking (issuer-subject matching)
+      - Chain expiration validation for all certificates in chain
+      - Trust anchor verification
+      - Self-signed certificate detection
+      - Key usage and basic constraints validation
+      - Batch expiration checking across multiple certificates
+      - Certificate renewal detection with configurable thresholds
+      - Validation result reporting with errors and warnings
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -747,7 +759,6 @@ The server will start on `http://localhost:8080` by default.
 ### Security
 - Service-based interface security:
   - Certificate management:
-    - Certificate validation utilities (expiration, chain validation)
     - Certificate lifecycle tracking (renewal dates, revocation status)
     - Certificate rotation and automatic renewal
     - CRL (Certificate Revocation List) support

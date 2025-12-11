@@ -1,5 +1,6 @@
 use mongodb::{bson::doc, Database};
 use crate::types::{Certificate, CertificatePurpose};
+use crate::services::certificate_validation::{CertificateValidator, ValidationResult, ChainValidationResult};
 use chrono::Utc;
 
 pub struct CertificateService;
@@ -169,5 +170,63 @@ impl CertificateService {
         );
 
         Ok(result.deleted_count)
+    }
+
+    pub async fn validate_certificate(
+        db: &Database,
+        cert_id: &str,
+    ) -> anyhow::Result<ValidationResult> {
+        let cert = Self::get_by_id(db, cert_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Certificate not found"))?;
+
+        CertificateValidator::validate_certificate(&cert)
+    }
+
+    pub async fn validate_certificate_chain(
+        db: &Database,
+        cert_id: &str,
+        intermediate_cert_ids: &[String],
+        root_cert_id: Option<String>,
+    ) -> anyhow::Result<ChainValidationResult> {
+        let cert = Self::get_by_id(db, cert_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Certificate not found"))?;
+
+        let mut intermediates = Vec::new();
+        for int_id in intermediate_cert_ids {
+            let int_cert = Self::get_by_id(db, int_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Intermediate certificate not found: {}", int_id))?;
+            intermediates.push(int_cert);
+        }
+
+        let root = if let Some(root_id) = root_cert_id {
+            Some(
+                Self::get_by_id(db, &root_id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Root certificate not found"))?,
+            )
+        } else {
+            None
+        };
+
+        let intermediate_refs: Vec<&Certificate> = intermediates.iter().collect();
+        let root_ref = root.as_ref();
+
+        CertificateValidator::validate_chain(&cert, &intermediate_refs, root_ref)
+    }
+
+    pub async fn check_all_expirations(db: &Database) -> anyhow::Result<Vec<(String, crate::services::certificate_validation::ExpirationStatus)>> {
+        let certs = Self::list_all(db).await?;
+        Ok(CertificateValidator::check_expiration_batch(&certs))
+    }
+
+    pub async fn find_certificates_needing_renewal(
+        db: &Database,
+        days_threshold: i64,
+    ) -> anyhow::Result<Vec<String>> {
+        let certs = Self::list_all(db).await?;
+        Ok(CertificateValidator::find_certificates_needing_renewal(&certs, days_threshold))
     }
 }

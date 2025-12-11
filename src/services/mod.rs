@@ -36,3 +36,4 @@ pub mod n16_client;
 pub mod inter_smf_handover;
 pub mod amf_smf_coordination;
 pub mod certificate;
+pub mod certificate_validation;
