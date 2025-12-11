@@ -799,6 +799,25 @@ The server will start on `http://localhost:8080` by default.
         - Auto-rotation attempt history endpoints (GET /admin/certificates/auto-rotation/attempts)
         - Integration with manual rotation service for actual certificate replacement
         - Automatic retry on next check cycle for failed rotations
+    - Certificate revocation checking:
+      - CRL (Certificate Revocation List) download and caching
+        - CRL download from distribution points via HTTP
+        - CRL parsing and storage in MongoDB
+        - CRL data models (Crl, RevokedCertificate, CrlFetchAttempt)
+        - CRL caching with expiration tracking (this_update and next_update)
+        - CRL refresh based on expiration and status
+        - Revoked certificate storage and indexing by CRL ID
+        - Certificate revocation status checking by serial number and issuer
+        - CRL fetch attempt history tracking with success/failure details
+        - HTTP status code and response size tracking
+        - Fetch failure count tracking with automatic status updates
+        - REST API endpoints for CRL management (GET/POST/DELETE /admin/crls/*)
+        - List all CRLs endpoint (GET /admin/crls)
+        - List expired CRLs endpoint (GET /admin/crls/expired)
+        - List CRLs needing refresh endpoint (GET /admin/crls/needs-refresh)
+        - Fetch CRL from distribution point endpoint (POST /admin/crls/fetch)
+        - Check certificate revocation status endpoint (GET /admin/crls/check-revocation/:serial_number/:issuer)
+        - CRL fetch attempts history endpoint (GET /admin/crls/fetch-attempts)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -816,18 +835,14 @@ The server will start on `http://localhost:8080` by default.
 ### Security
 - Service-based interface security:
   - Certificate management:
-    - Certificate lifecycle tracking:
-      - Certificate expiration monitoring and alerting
-      - Renewal scheduling and tracking
     - Certificate rotation:
       - Zero-downtime certificate replacement
     - Certificate revocation checking:
-      - CRL (Certificate Revocation List) download and caching
       - CRL parsing and validation
-      - Certificate revocation status checking
-      - OCSP (Online Certificate Status Protocol) client
-      - OCSP stapling support
-      - Revocation cache management
+      - Certificate revocation status checking against CRL
+      - OCSP (Online Certificate Status Protocol) client implementation
+      - OCSP stapling support for TLS server
+      - Revocation cache management with TTL and refresh
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control

@@ -134,7 +134,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/certificates/audit-logs", get(handlers::certificate_audit::query_audit_logs))
         .route("/admin/certificates/audit-logs/summary", get(handlers::certificate_audit::get_audit_summary))
         .route("/admin/certificates/usage-records", get(handlers::certificate_audit::query_usage_records))
-        .route("/admin/certificates/usage-records/summary", get(handlers::certificate_audit::get_usage_summary));
+        .route("/admin/certificates/usage-records/summary", get(handlers::certificate_audit::get_usage_summary))
+        .route("/admin/crls", get(handlers::crl::list_crls))
+        .route("/admin/crls/fetch", post(handlers::crl::fetch_crl))
+        .route("/admin/crls/expired", get(handlers::crl::list_expired_crls))
+        .route("/admin/crls/needs-refresh", get(handlers::crl::list_crls_needs_refresh))
+        .route("/admin/crls/:id", get(handlers::crl::get_crl))
+        .route("/admin/crls/:id", delete(handlers::crl::delete_crl))
+        .route("/admin/crls/check-revocation/:serial_number/:issuer", get(handlers::crl::check_revocation))
+        .route("/admin/crls/fetch-attempts", get(handlers::crl::get_fetch_attempts));
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");
