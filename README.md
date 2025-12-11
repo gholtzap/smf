@@ -818,6 +818,15 @@ The server will start on `http://localhost:8080` by default.
         - Fetch CRL from distribution point endpoint (POST /admin/crls/fetch)
         - Check certificate revocation status endpoint (GET /admin/crls/check-revocation/:serial_number/:issuer)
         - CRL fetch attempts history endpoint (GET /admin/crls/fetch-attempts)
+      - OCSP (Online Certificate Status Protocol) request infrastructure
+        - OCSP request data models (OcspRequest, CertId, HashAlgorithm)
+        - OCSP response data models (OcspResponse, SingleResponse, CertStatus)
+        - OCSP cache entry data model with expiration tracking
+        - CertId builder with hash validation
+        - OcspRequestBuilder for fluent request creation
+        - Support for multiple hash algorithms (SHA1, SHA256, SHA384, SHA512)
+        - Nonce support for replay attack prevention
+        - Unit tests for request builders and data models
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -840,7 +849,12 @@ The server will start on `http://localhost:8080` by default.
     - Certificate revocation checking:
       - CRL parsing and validation
       - Certificate revocation status checking against CRL
-      - OCSP (Online Certificate Status Protocol) client implementation
+      - OCSP (Online Certificate Status Protocol) client implementation:
+        - OCSP response data models and parsers
+        - OCSP HTTP client for responder communication
+        - OCSP response validation and verification
+        - OCSP response cache management
+        - Integration with certificate validation flow
       - OCSP stapling support for TLS server
       - Revocation cache management with TTL and refresh
 - Authorization and access control:
