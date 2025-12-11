@@ -43,3 +43,5 @@ pub mod certificate_provider;
 pub mod certificate_auto_rotation;
 pub mod certificate_audit;
 pub mod crl;
+pub mod ocsp_codec;
+pub mod ocsp_client;

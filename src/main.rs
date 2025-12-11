@@ -142,7 +142,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/crls/:id", get(handlers::crl::get_crl))
         .route("/admin/crls/:id", delete(handlers::crl::delete_crl))
         .route("/admin/crls/check-revocation/:serial_number/:issuer", get(handlers::crl::check_revocation))
-        .route("/admin/crls/fetch-attempts", get(handlers::crl::get_fetch_attempts));
+        .route("/admin/crls/fetch-attempts", get(handlers::crl::get_fetch_attempts))
+        .route("/admin/ocsp/check", post(handlers::ocsp::check_certificate))
+        .route("/admin/ocsp/cache", get(handlers::ocsp::list_cache))
+        .route("/admin/ocsp/cache/expired", get(handlers::ocsp::list_expired_cache))
+        .route("/admin/ocsp/cache/:id", delete(handlers::ocsp::delete_cache_entry))
+        .route("/admin/ocsp/cache/clear", post(handlers::ocsp::clear_cache))
+        .route("/admin/ocsp/cache/expired/delete", post(handlers::ocsp::delete_expired_cache));
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");

@@ -1,4 +1,6 @@
 use crate::types::Certificate;
+use crate::types::ocsp::CertStatus;
+use crate::services::ocsp_client::OcspClient;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
@@ -7,6 +9,7 @@ use x509_cert::{
     der::Decode,
     Certificate as X509Certificate,
 };
+use mongodb::Database;
 
 #[derive(Debug, Clone)]
 pub struct ValidationResult {
@@ -342,6 +345,108 @@ impl CertificateValidator {
             .filter(|cert| cert.needs_renewal(days_threshold))
             .map(|cert| cert.name.clone())
             .collect()
+    }
+
+    pub async fn validate_with_ocsp(
+        cert: &Certificate,
+        issuer: &Certificate,
+        responder_url: &str,
+        db: &Database,
+    ) -> Result<ValidationResult> {
+        let mut result = Self::validate_certificate(cert)?;
+
+        let ocsp_client = OcspClient::new(db.clone());
+
+        match ocsp_client.check_certificate(cert, issuer, responder_url).await {
+            Ok(CertStatus::Good) => {
+            }
+            Ok(CertStatus::Revoked { revocation_time, revocation_reason }) => {
+                result.add_error(format!(
+                    "Certificate has been revoked (time: {}, reason: {:?})",
+                    revocation_time, revocation_reason
+                ));
+            }
+            Ok(CertStatus::Unknown) => {
+                result.add_warning("Certificate revocation status is unknown".to_string());
+            }
+            Err(e) => {
+                result.add_warning(format!("OCSP check failed: {}", e));
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn validate_chain_with_ocsp(
+        cert: &Certificate,
+        intermediate_certs: &[&Certificate],
+        root_cert: Option<&Certificate>,
+        responder_url: &str,
+        db: &Database,
+    ) -> Result<ChainValidationResult> {
+        let mut result = Self::validate_chain(cert, intermediate_certs, root_cert)?;
+
+        if !result.is_valid {
+            return Ok(result);
+        }
+
+        let ocsp_client = OcspClient::new(db.clone());
+
+        if let Some(issuer) = intermediate_certs.first().or(root_cert.as_ref()) {
+            match ocsp_client.check_certificate(cert, issuer, responder_url).await {
+                Ok(CertStatus::Good) => {
+                }
+                Ok(CertStatus::Revoked { revocation_time, revocation_reason }) => {
+                    result.is_valid = false;
+                    result.errors.push(format!(
+                        "Leaf certificate has been revoked (time: {}, reason: {:?})",
+                        revocation_time, revocation_reason
+                    ));
+                }
+                Ok(CertStatus::Unknown) => {
+                    result.warnings.push("Leaf certificate revocation status is unknown".to_string());
+                }
+                Err(e) => {
+                    result.warnings.push(format!("OCSP check failed for leaf certificate: {}", e));
+                }
+            }
+        }
+
+        for (i, intermediate) in intermediate_certs.iter().enumerate() {
+            let issuer = if i + 1 < intermediate_certs.len() {
+                intermediate_certs[i + 1]
+            } else if let Some(root) = root_cert {
+                root
+            } else {
+                continue;
+            };
+
+            match ocsp_client.check_certificate(intermediate, issuer, responder_url).await {
+                Ok(CertStatus::Good) => {
+                }
+                Ok(CertStatus::Revoked { revocation_time, revocation_reason }) => {
+                    result.is_valid = false;
+                    result.errors.push(format!(
+                        "Intermediate certificate {} has been revoked (time: {}, reason: {:?})",
+                        intermediate.name, revocation_time, revocation_reason
+                    ));
+                }
+                Ok(CertStatus::Unknown) => {
+                    result.warnings.push(format!(
+                        "Intermediate certificate {} revocation status is unknown",
+                        intermediate.name
+                    ));
+                }
+                Err(e) => {
+                    result.warnings.push(format!(
+                        "OCSP check failed for intermediate certificate {}: {}",
+                        intermediate.name, e
+                    ));
+                }
+            }
+        }
+
+        Ok(result)
     }
 }
 

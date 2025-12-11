@@ -827,6 +827,21 @@ The server will start on `http://localhost:8080` by default.
         - Support for multiple hash algorithms (SHA1, SHA256, SHA384, SHA512)
         - Nonce support for replay attack prevention
         - Unit tests for request builders and data models
+      - OCSP (Online Certificate Status Protocol) client implementation:
+        - OCSP DER encoding/decoding codec for ASN.1 OCSP messages
+        - OCSP request encoder with support for multiple certificate IDs and nonces
+        - OCSP response decoder with BasicOcspResponse parsing
+        - OCSP HTTP client for responder communication
+        - Certificate revocation status checking (Good, Revoked, Unknown)
+        - Batch certificate checking support
+        - OCSP response validation and verification
+        - OCSP response cache management in MongoDB
+        - Automatic cache expiration based on nextUpdate field
+        - CertId generation from certificate and issuer certificates
+        - Integration with certificate validation flow
+        - validate_with_ocsp method for single certificate validation with OCSP
+        - validate_chain_with_ocsp method for certificate chain validation with OCSP
+        - REST API endpoints for OCSP management (POST /admin/ocsp/check, GET /admin/ocsp/cache, DELETE /admin/ocsp/cache/:id, POST /admin/ocsp/cache/clear, GET /admin/ocsp/cache/expired, POST /admin/ocsp/cache/expired/delete)
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -849,12 +864,6 @@ The server will start on `http://localhost:8080` by default.
     - Certificate revocation checking:
       - CRL parsing and validation
       - Certificate revocation status checking against CRL
-      - OCSP (Online Certificate Status Protocol) client implementation:
-        - OCSP response data models and parsers
-        - OCSP HTTP client for responder communication
-        - OCSP response validation and verification
-        - OCSP response cache management
-        - Integration with certificate validation flow
       - OCSP stapling support for TLS server
       - Revocation cache management with TTL and refresh
 - Authorization and access control:
