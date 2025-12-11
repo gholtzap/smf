@@ -119,7 +119,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/qos-rules/apply", post(handlers::qos_rule::apply_qos_rules))
         .route("/nsmf-event-exposure/v1/subscriptions", post(handlers::event_exposure::create_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
-        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription));
+        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
+        .route("/admin/certificates/:name/:purpose/rotate", post(handlers::certificate_rotation::rotate_certificate))
+        .route("/admin/certificates/rotations/rollback", post(handlers::certificate_rotation::rollback_certificate_rotation))
+        .route("/admin/certificates/rotations/history", get(handlers::certificate_rotation::get_rotation_history));
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");

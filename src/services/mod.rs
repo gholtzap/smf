@@ -38,3 +38,4 @@ pub mod amf_smf_coordination;
 pub mod certificate;
 pub mod certificate_validation;
 pub mod certificate_renewal;
+pub mod certificate_rotation;

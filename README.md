@@ -755,6 +755,19 @@ The server will start on `http://localhost:8080` by default.
         - Database indexes for efficient notification queries
         - Check interval configurable (default: 24 hours)
         - Integration with existing certificate validation infrastructure
+    - Certificate rotation:
+      - Manual certificate rotation workflow
+        - Certificate rotation API endpoint (POST /admin/certificates/{name}/{purpose}/rotate)
+        - Certificate validation before rotation
+        - Rotation history tracking in MongoDB
+        - Rotation record with old/new certificate IDs, timestamp, and status
+        - Certificate rollback support (POST /admin/certificates/rotations/rollback)
+        - Rotation history query endpoint (GET /admin/certificates/rotations/history)
+        - Query by certificate name and purpose
+        - Automatic key type and size extraction from new certificate
+        - PEM certificate parsing and metadata extraction
+        - Restart requirement notification for server TLS certificates
+        - Support for certificate chain rotation
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -777,10 +790,8 @@ The server will start on `http://localhost:8080` by default.
       - Renewal scheduling and tracking
       - Certificate usage tracking and audit logging
     - Certificate rotation:
-      - Manual certificate rotation workflow
       - Automatic certificate rotation scheduler
       - Zero-downtime certificate replacement
-      - Rollback support for failed rotations
     - Certificate revocation checking:
       - CRL (Certificate Revocation List) download and caching
       - CRL parsing and validation

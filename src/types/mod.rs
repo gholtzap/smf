@@ -27,6 +27,7 @@ pub mod sm_context_transfer;
 pub mod amf_smf_coordination;
 pub mod certificate;
 pub mod certificate_notification;
+pub mod certificate_rotation;
 
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +56,7 @@ pub use sm_context_transfer::*;
 pub use amf_smf_coordination::*;
 pub use certificate::*;
 pub use certificate_notification::*;
+pub use certificate_rotation::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
