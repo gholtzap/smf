@@ -768,6 +768,23 @@ The server will start on `http://localhost:8080` by default.
         - PEM certificate parsing and metadata extraction
         - Restart requirement notification for server TLS certificates
         - Support for certificate chain rotation
+      - Automatic certificate rotation scheduler
+        - Background monitoring service with configurable check intervals (default: 6 hours)
+        - Auto-rotation configuration per certificate (name and purpose)
+        - Configurable rotation threshold (days before expiration to trigger rotation)
+        - Certificate provider abstraction for obtaining new certificates
+        - Manual provider for pre-configured certificates
+        - External provider for API-based certificate provisioning
+        - ACME provider interface (implementation pending)
+        - Auto-rotation attempt tracking in MongoDB
+        - Success/failure tracking with error messages
+        - Rotation history linking to manual rotation records
+        - Enable/disable auto-rotation per certificate
+        - Auto-rotation status endpoints showing days until expiration and rotation triggers
+        - Admin API endpoints for configuration management (POST/GET/PUT/DELETE /admin/certificates/auto-rotation/configs)
+        - Auto-rotation attempt history endpoints (GET /admin/certificates/auto-rotation/attempts)
+        - Integration with manual rotation service for actual certificate replacement
+        - Automatic retry on next check cycle for failed rotations
 
 ## NOT IMPLEMENTED FEATURES
 
@@ -790,7 +807,6 @@ The server will start on `http://localhost:8080` by default.
       - Renewal scheduling and tracking
       - Certificate usage tracking and audit logging
     - Certificate rotation:
-      - Automatic certificate rotation scheduler
       - Zero-downtime certificate replacement
     - Certificate revocation checking:
       - CRL (Certificate Revocation List) download and caching

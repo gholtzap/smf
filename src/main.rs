@@ -122,7 +122,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .route("/admin/certificates/:name/:purpose/rotate", post(handlers::certificate_rotation::rotate_certificate))
         .route("/admin/certificates/rotations/rollback", post(handlers::certificate_rotation::rollback_certificate_rotation))
-        .route("/admin/certificates/rotations/history", get(handlers::certificate_rotation::get_rotation_history));
+        .route("/admin/certificates/rotations/history", get(handlers::certificate_rotation::get_rotation_history))
+        .route("/admin/certificates/auto-rotation/configs", post(handlers::certificate_auto_rotation::create_auto_rotation_config))
+        .route("/admin/certificates/auto-rotation/configs", get(handlers::certificate_auto_rotation::list_auto_rotation_configs))
+        .route("/admin/certificates/auto-rotation/configs/:config_id", get(handlers::certificate_auto_rotation::get_auto_rotation_config))
+        .route("/admin/certificates/auto-rotation/configs/:config_id", put(handlers::certificate_auto_rotation::update_auto_rotation_config))
+        .route("/admin/certificates/auto-rotation/configs/:config_id", delete(handlers::certificate_auto_rotation::delete_auto_rotation_config))
+        .route("/admin/certificates/auto-rotation/configs/:config_id/status", get(handlers::certificate_auto_rotation::get_auto_rotation_status))
+        .route("/admin/certificates/auto-rotation/configs/:config_id/attempts", get(handlers::certificate_auto_rotation::get_config_attempts))
+        .route("/admin/certificates/auto-rotation/attempts", get(handlers::certificate_auto_rotation::get_recent_attempts));
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");

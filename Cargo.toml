@@ -32,3 +32,4 @@ rasn-pkix = "0.20"
 x509-cert = { version = "0.2", features = ["pem"] }
 sha2 = "0.10"
 hex = "0.4"
+async-trait = "0.1"

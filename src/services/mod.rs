@@ -39,3 +39,5 @@ pub mod certificate;
 pub mod certificate_validation;
 pub mod certificate_renewal;
 pub mod certificate_rotation;
+pub mod certificate_provider;
+pub mod certificate_auto_rotation;

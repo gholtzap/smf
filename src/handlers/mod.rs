@@ -8,3 +8,4 @@ pub mod amf_callback;
 pub mod n16_transfer;
 pub mod amf_smf_coordination;
 pub mod certificate_rotation;
+pub mod certificate_auto_rotation;

@@ -203,6 +203,15 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     });
     tracing::info!("Certificate renewal monitoring service started");
 
+    let cert_auto_rotation_service = Arc::new(crate::services::certificate_auto_rotation::CertificateAutoRotationService::with_defaults(
+        Arc::new(db.clone())
+    ));
+    let cert_auto_rotation_monitor = cert_auto_rotation_service.clone();
+    tokio::spawn(async move {
+        cert_auto_rotation_monitor.start_monitoring().await;
+    });
+    tracing::info!("Certificate auto-rotation service started");
+
     let inter_smf_handover_service = if let Some(ref pfcp) = pfcp_client {
         let n16_client = Arc::new(N16Client::new(config.nf_instance_id.clone()));
         let service = Arc::new(InterSmfHandoverService::new(
