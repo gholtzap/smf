@@ -130,7 +130,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/certificates/auto-rotation/configs/:config_id", delete(handlers::certificate_auto_rotation::delete_auto_rotation_config))
         .route("/admin/certificates/auto-rotation/configs/:config_id/status", get(handlers::certificate_auto_rotation::get_auto_rotation_status))
         .route("/admin/certificates/auto-rotation/configs/:config_id/attempts", get(handlers::certificate_auto_rotation::get_config_attempts))
-        .route("/admin/certificates/auto-rotation/attempts", get(handlers::certificate_auto_rotation::get_recent_attempts));
+        .route("/admin/certificates/auto-rotation/attempts", get(handlers::certificate_auto_rotation::get_recent_attempts))
+        .route("/admin/certificates/audit-logs", get(handlers::certificate_audit::query_audit_logs))
+        .route("/admin/certificates/audit-logs/summary", get(handlers::certificate_audit::get_audit_summary))
+        .route("/admin/certificates/usage-records", get(handlers::certificate_audit::query_usage_records))
+        .route("/admin/certificates/usage-records/summary", get(handlers::certificate_audit::get_usage_summary));
 
     if config.oauth2.enabled {
         tracing::info!("OAuth2 authentication enabled");

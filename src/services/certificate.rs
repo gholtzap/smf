@@ -1,6 +1,7 @@
 use mongodb::{bson::doc, Database};
-use crate::types::{Certificate, CertificatePurpose};
+use crate::types::{Certificate, CertificatePurpose, CertificateAuditLog, AuditEventType};
 use crate::services::certificate_validation::{CertificateValidator, ValidationResult, ChainValidationResult};
+use crate::services::certificate_audit::CertificateAuditService;
 use chrono::Utc;
 
 pub struct CertificateService;
@@ -30,12 +31,34 @@ impl CertificateService {
             certificate.not_after
         );
 
+        let audit_log = CertificateAuditLog::new(
+            certificate.id.clone(),
+            certificate.name.clone(),
+            certificate.purpose,
+            AuditEventType::CertificateCreated,
+            true,
+        );
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+
         Ok(certificate)
     }
 
     pub async fn get_by_id(db: &Database, id: &str) -> anyhow::Result<Option<Certificate>> {
         let collection: mongodb::Collection<Certificate> = db.collection("certificates");
-        Ok(collection.find_one(doc! { "_id": id }).await?)
+        let result = collection.find_one(doc! { "_id": id }).await?;
+
+        if let Some(ref cert) = result {
+            let audit_log = CertificateAuditLog::new(
+                cert.id.clone(),
+                cert.name.clone(),
+                cert.purpose,
+                AuditEventType::CertificateAccessed,
+                true,
+            );
+            let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+        }
+
+        Ok(result)
     }
 
     pub async fn get_by_name_and_purpose(
@@ -44,12 +67,25 @@ impl CertificateService {
         purpose: CertificatePurpose,
     ) -> anyhow::Result<Option<Certificate>> {
         let collection: mongodb::Collection<Certificate> = db.collection("certificates");
-        Ok(collection
+        let result = collection
             .find_one(doc! {
                 "name": name,
                 "purpose": mongodb::bson::to_bson(&purpose)?
             })
-            .await?)
+            .await?;
+
+        if let Some(ref cert) = result {
+            let audit_log = CertificateAuditLog::new(
+                cert.id.clone(),
+                cert.name.clone(),
+                cert.purpose,
+                AuditEventType::CertificateAccessed,
+                true,
+            );
+            let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+        }
+
+        Ok(result)
     }
 
     pub async fn list_by_purpose(
@@ -141,11 +177,22 @@ impl CertificateService {
 
         tracing::info!("Updated certificate '{}'", certificate.name);
 
+        let audit_log = CertificateAuditLog::new(
+            certificate.id.clone(),
+            certificate.name.clone(),
+            certificate.purpose,
+            AuditEventType::CertificateUpdated,
+            true,
+        );
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+
         Ok(())
     }
 
     pub async fn delete(db: &Database, id: &str) -> anyhow::Result<()> {
         let collection: mongodb::Collection<Certificate> = db.collection("certificates");
+
+        let cert = collection.find_one(doc! { "_id": id }).await?;
 
         let result = collection.delete_one(doc! { "_id": id }).await?;
 
@@ -154,6 +201,17 @@ impl CertificateService {
         }
 
         tracing::info!("Deleted certificate with ID '{}'", id);
+
+        if let Some(cert) = cert {
+            let audit_log = CertificateAuditLog::new(
+                cert.id.clone(),
+                cert.name.clone(),
+                cert.purpose,
+                AuditEventType::CertificateDeleted,
+                true,
+            );
+            let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+        }
 
         Ok(())
     }
@@ -180,7 +238,18 @@ impl CertificateService {
             .await?
             .ok_or_else(|| anyhow::anyhow!("Certificate not found"))?;
 
-        CertificateValidator::validate_certificate(&cert)
+        let result = CertificateValidator::validate_certificate(&cert);
+
+        let audit_log = CertificateAuditLog::new(
+            cert.id.clone(),
+            cert.name.clone(),
+            cert.purpose,
+            AuditEventType::CertificateValidated,
+            result.is_ok(),
+        ).with_details(format!("Validation result: {:?}", result));
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+
+        result
     }
 
     pub async fn validate_certificate_chain(
@@ -214,7 +283,18 @@ impl CertificateService {
         let intermediate_refs: Vec<&Certificate> = intermediates.iter().collect();
         let root_ref = root.as_ref();
 
-        CertificateValidator::validate_chain(&cert, &intermediate_refs, root_ref)
+        let result = CertificateValidator::validate_chain(&cert, &intermediate_refs, root_ref);
+
+        let audit_log = CertificateAuditLog::new(
+            cert.id.clone(),
+            cert.name.clone(),
+            cert.purpose,
+            AuditEventType::ChainValidated,
+            result.is_ok(),
+        ).with_details(format!("Chain validation result: {:?}", result));
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+
+        result
     }
 
     pub async fn check_all_expirations(db: &Database) -> anyhow::Result<Vec<(String, crate::services::certificate_validation::ExpirationStatus)>> {

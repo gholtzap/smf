@@ -295,5 +295,7 @@ async fn init_indexes(db: &Database) -> anyhow::Result<()> {
 
     tracing::info!("Created index on (severity, created_at) for renewal notifications");
 
+    crate::services::certificate_audit::CertificateAuditService::initialize_indexes(db).await?;
+
     Ok(())
 }

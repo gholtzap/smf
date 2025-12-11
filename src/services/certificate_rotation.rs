@@ -2,9 +2,9 @@ use mongodb::{bson::doc, Database};
 use crate::types::{
     Certificate, CertificatePurpose, CertificateRotationRecord, RotationStatus,
     CertificateRotationRequest, CertificateRotationResponse, CertificateRollbackRequest,
-    CertificateRollbackResponse, RotationHistoryResponse,
+    CertificateRollbackResponse, RotationHistoryResponse, CertificateAuditLog, AuditEventType,
 };
-use crate::services::{certificate::CertificateService, certificate_validation::CertificateValidator};
+use crate::services::{certificate::CertificateService, certificate_validation::CertificateValidator, certificate_audit::CertificateAuditService};
 use chrono::Utc;
 use x509_cert::Certificate as X509Certificate;
 use x509_cert::der::Decode;
@@ -113,6 +113,15 @@ impl CertificateRotationService {
             created_cert.id
         );
 
+        let audit_log = CertificateAuditLog::new(
+            created_cert.id.clone(),
+            created_cert.name.clone(),
+            created_cert.purpose,
+            AuditEventType::CertificateRotated,
+            true,
+        ).with_details(format!("Rotated from {} to {}", old_cert.id, created_cert.id));
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
+
         Ok(CertificateRotationResponse {
             success: true,
             message: format!("Certificate '{}' rotated successfully", name),
@@ -169,6 +178,15 @@ impl CertificateRotationService {
             rotation.certificate_name,
             rotation.old_certificate_id
         );
+
+        let audit_log = CertificateAuditLog::new(
+            rotation.old_certificate_id.clone(),
+            rotation.certificate_name.clone(),
+            current_cert_purpose,
+            AuditEventType::CertificateRolledBack,
+            true,
+        ).with_details(format!("Rollback of rotation {}", request.rotation_id));
+        let _ = CertificateAuditService::log_audit_event(db, audit_log).await;
 
         Ok(CertificateRollbackResponse {
             success: true,

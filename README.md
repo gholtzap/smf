@@ -755,6 +755,20 @@ The server will start on `http://localhost:8080` by default.
         - Database indexes for efficient notification queries
         - Check interval configurable (default: 24 hours)
         - Integration with existing certificate validation infrastructure
+      - Certificate usage tracking and audit logging
+        - Audit log data models (CertificateAuditLog with event types, actor, IP, timestamp)
+        - Usage record data models (CertificateUsageRecord with usage types, service, endpoint)
+        - Audit event types (Created, Updated, Deleted, Accessed, Validated, Rotated, RolledBack, Exported, PrivateKeyAccessed, ChainValidated)
+        - Certificate usage types (TlsHandshake, MtlsValidation, SignatureVerification, SignatureGeneration, Encryption, Decryption)
+        - Automatic audit logging for all certificate operations
+        - MongoDB storage with TTL indexes (90-day retention)
+        - Query audit logs by certificate ID, name, event type, actor, time range, success status
+        - Query usage records by certificate ID, name, usage type, service, time range, success status
+        - Audit summary endpoint with event counts by type and recent events
+        - Usage summary endpoint with usage counts by type and recent usage
+        - Integration with certificate service operations (create, read, update, delete, validate, rotate)
+        - Pagination support for audit log and usage record queries
+        - REST API endpoints for audit log and usage record querying (/admin/certificates/audit-logs, /admin/certificates/usage-records)
     - Certificate rotation:
       - Manual certificate rotation workflow
         - Certificate rotation API endpoint (POST /admin/certificates/{name}/{purpose}/rotate)
@@ -805,7 +819,6 @@ The server will start on `http://localhost:8080` by default.
     - Certificate lifecycle tracking:
       - Certificate expiration monitoring and alerting
       - Renewal scheduling and tracking
-      - Certificate usage tracking and audit logging
     - Certificate rotation:
       - Zero-downtime certificate replacement
     - Certificate revocation checking:
