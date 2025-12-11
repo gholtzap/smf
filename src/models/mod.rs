@@ -282,6 +282,7 @@ pub struct PduSessionUpdateData {
 #[serde(rename_all = "camelCase")]
 pub struct PduSessionUpdatedData {
     pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    pub n1_sm_msg: Option<RefToBinaryData>,
     pub n2_sm_info: Option<N2SmInfo>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
     pub eps_bearer_info: Option<Vec<EpsBearerInfo>>,
@@ -289,6 +290,8 @@ pub struct PduSessionUpdatedData {
     pub session_ambr: Option<Ambr>,
     pub cn_tunnel_info: Option<TunnelInfo>,
     pub additional_cn_tunnel_info: Option<TunnelInfo>,
+    pub qos_flows_add_mod_list: Option<Vec<QosFlowItem>>,
+    pub qos_flows_rel_list: Option<Vec<QosFlowItem>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

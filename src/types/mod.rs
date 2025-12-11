@@ -25,6 +25,7 @@ pub mod nas;
 pub mod upf_selection;
 pub mod sm_context_transfer;
 pub mod amf_smf_coordination;
+pub mod certificate;
 
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +52,7 @@ pub use nas::*;
 pub use upf_selection::*;
 pub use sm_context_transfer::*;
 pub use amf_smf_coordination::*;
+pub use certificate::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,6 +108,7 @@ pub enum NgapIeType {
     PduResRelRsp,
     PduResModifyReq,
     PduResModifyRsp,
+    PathSwitchReqAck,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

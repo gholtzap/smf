@@ -778,6 +778,8 @@ async fn handle_path_switch(
                                         response.target_sm_context_ref
                                     );
                                     return Ok(Json(PduSessionUpdatedData {
+                                        n1_sm_info_to_ue: None,
+                                        n1_sm_msg: None,
                                         n2_sm_info: Some(N2SmInfo {
                                             content_id: "smf-changed".to_string(),
                                             n2_info_content: N2InfoContent {
@@ -786,8 +788,11 @@ async fn handle_path_switch(
                                             },
                                         }),
                                         n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
-                                        n1_sm_msg: None,
+                                        eps_bearer_info: None,
+                                        supported_features: None,
                                         session_ambr: sm_context.session_ambr.clone(),
+                                        cn_tunnel_info: None,
+                                        additional_cn_tunnel_info: None,
                                         qos_flows_add_mod_list: None,
                                         qos_flows_rel_list: None,
                                     }));
@@ -1029,6 +1034,7 @@ async fn handle_path_switch(
 
     let response = PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
         n2_sm_info: Some(N2SmInfo {
             content_id: "n2-sm-info".to_string(),
             n2_info_content: N2InfoContent {
@@ -1042,6 +1048,8 @@ async fn handle_path_switch(
         session_ambr: effective_ambr,
         cn_tunnel_info,
         additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
     };
 
     tracing::info!(
@@ -1168,6 +1176,7 @@ pub async fn update_pdu_session(
 
     let response = PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
         n2_sm_info: payload.n2_sm_info.or(Some(N2SmInfo {
             content_id: "n2-sm-info".to_string(),
             n2_info_content: N2InfoContent {
@@ -1181,6 +1190,8 @@ pub async fn update_pdu_session(
         session_ambr: updated_ambr,
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
     };
 
     tracing::info!(

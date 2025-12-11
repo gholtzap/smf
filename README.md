@@ -715,6 +715,22 @@ The server will start on `http://localhost:8080` by default.
     - Support for optional NR-CGI and TAI fields
     - Comprehensive logging for location information debugging
 
+### Security
+- Service-based interface security:
+  - Certificate management:
+    - Certificate storage in MongoDB
+      - Certificate data model with purpose, key type, and validity tracking
+      - MongoDB collection with unique index on (name, purpose)
+      - Expiration index for efficient certificate lifecycle queries
+      - Certificate CRUD operations (create, get, update, delete)
+      - List certificates by purpose (ServerTls, ClientTls, ClientAuth, RootCa, IntermediateCa)
+      - Query expired certificates
+      - Query certificates expiring within threshold
+      - Certificate validity checking utilities (is_expired, is_valid_now, days_until_expiration, needs_renewal)
+      - Support for PEM-encoded certificates, private keys, and certificate chains
+      - Certificate metadata tracking (subject, issuer, serial number, fingerprint)
+      - Key type support (RSA, ECDSA, Ed25519) with key size tracking
+
 ## NOT IMPLEMENTED FEATURES
 
 ### PDU Session Management (TS 29.502)
@@ -730,7 +746,12 @@ The server will start on `http://localhost:8080` by default.
 
 ### Security
 - Service-based interface security:
-  - Certificate management
+  - Certificate management:
+    - Certificate validation utilities (expiration, chain validation)
+    - Certificate lifecycle tracking (renewal dates, revocation status)
+    - Certificate rotation and automatic renewal
+    - CRL (Certificate Revocation List) support
+    - OCSP (Online Certificate Status Protocol) support
 - Authorization and access control:
   - NF authorization policy framework
   - Resource-based access control

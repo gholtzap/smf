@@ -35,3 +35,4 @@ pub mod context_transfer_target;
 pub mod n16_client;
 pub mod inter_smf_handover;
 pub mod amf_smf_coordination;
+pub mod certificate;

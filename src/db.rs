@@ -229,16 +229,35 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 }
 
 async fn init_indexes(db: &Database) -> anyhow::Result<()> {
-    let collection = db.collection::<SmContext>("sm_contexts");
+    let sm_contexts_collection = db.collection::<SmContext>("sm_contexts");
 
-    let index = IndexModel::builder()
+    let sm_index = IndexModel::builder()
         .keys(doc! { "supi": 1, "pdu_session_id": 1 })
         .options(IndexOptions::builder().unique(true).build())
         .build();
 
-    collection.create_index(index).await?;
+    sm_contexts_collection.create_index(sm_index).await?;
 
     tracing::info!("Created unique index on (supi, pdu_session_id)");
+
+    let certificates_collection = db.collection::<crate::types::Certificate>("certificates");
+
+    let cert_name_purpose_index = IndexModel::builder()
+        .keys(doc! { "name": 1, "purpose": 1 })
+        .options(IndexOptions::builder().unique(true).build())
+        .build();
+
+    certificates_collection.create_index(cert_name_purpose_index).await?;
+
+    tracing::info!("Created unique index on (name, purpose) for certificates");
+
+    let cert_expiration_index = IndexModel::builder()
+        .keys(doc! { "not_after": 1 })
+        .build();
+
+    certificates_collection.create_index(cert_expiration_index).await?;
+
+    tracing::info!("Created index on not_after for certificates");
 
     Ok(())
 }
