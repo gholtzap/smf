@@ -29,7 +29,7 @@ impl NrfRegistrationService {
 
         let nf_services = vec![
             NFService {
-                service_instance_id: format!("{}-nsmf-pdusession", self.config.nf_instance_id),
+                service_instance_id: uuid::Uuid::new_v4().to_string(),
                 service_name: "nsmf-pdusession".to_string(),
                 versions: vec![NFServiceVersion {
                     api_version_in_uri: "v1".to_string(),
@@ -52,7 +52,7 @@ impl NrfRegistrationService {
                 supported_features: None,
             },
             NFService {
-                service_instance_id: format!("{}-nsmf-event-exposure", self.config.nf_instance_id),
+                service_instance_id: uuid::Uuid::new_v4().to_string(),
                 service_name: "nsmf-event-exposure".to_string(),
                 versions: vec![NFServiceVersion {
                     api_version_in_uri: "v1".to_string(),

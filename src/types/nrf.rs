@@ -44,22 +44,39 @@ pub struct NFProfile {
     pub nf_type: NfType,
     pub nf_status: NfStatus,
     pub plmn_list: Vec<PlmnId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub s_nssai_list: Option<Vec<Snssai>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nsi_list: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fqdn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv4_addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv6_addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_plmns: Option<Vec<PlmnId>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nf_types: Option<Vec<NfType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nf_domains: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nssais: Option<Vec<Snssai>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub load: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub locality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nf_services: Option<Vec<NFService>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub smf_info: Option<SmfInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub amf_info: Option<AmfInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub heart_beat_timer: Option<u32>,
 }
 
@@ -71,18 +88,31 @@ pub struct NFService {
     pub versions: Vec<NFServiceVersion>,
     pub scheme: String,
     pub nf_service_status: NfServiceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fqdn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv4_addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv6_addresses: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_notification_subscriptions: Option<Vec<DefaultNotificationSubscription>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_plmns: Option<Vec<PlmnId>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nf_types: Option<Vec<NfType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nf_domains: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_nssais: Option<Vec<Snssai>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub load: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub supported_features: Option<String>,
 }
 
@@ -114,11 +144,17 @@ pub struct DefaultNotificationSubscription {
 #[serde(rename_all = "camelCase")]
 pub struct SmfInfo {
     pub s_nssai_smf_info_list: Vec<SnssaiSmfInfoItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tai_list: Option<Vec<Tai>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tai_range_list: Option<Vec<TaiRange>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pgw_fqdn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<Vec<AccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vsmf_support_ind: Option<bool>,
 }
 
