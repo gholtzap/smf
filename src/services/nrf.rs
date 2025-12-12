@@ -1,6 +1,6 @@
 use crate::types::{
-    NFProfile, NfType, NfStatus, SearchResult, SubscriptionData,
-    ProblemDetails, QueryParams,
+    NFProfile, NfType, SearchResult, SubscriptionData,
+    QueryParams,
 };
 use crate::types::oauth2_request::OAuth2ClientExt;
 use crate::services::oauth2_client::OAuth2TokenClient;

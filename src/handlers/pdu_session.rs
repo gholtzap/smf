@@ -6,8 +6,9 @@ use axum::{
 };
 use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
+use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, TunnelInfo};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType};
 use crate::types::{N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -183,7 +184,7 @@ pub async fn create_pdu_session(
             payload.supi
         );
 
-        let n1_data = base64::decode(&n1_sm_msg.content_id).unwrap_or_default();
+        let n1_data = general_purpose::STANDARD.decode(&n1_sm_msg.content_id).unwrap_or_default();
 
         if !n1_data.is_empty() {
             match NasParser::parse_pdu_session_establishment_request(&n1_data) {
@@ -625,7 +626,7 @@ pub async fn create_pdu_session(
             confidentiality_required,
         );
 
-        let encoded = base64::encode(&nas_accept_msg);
+        let encoded = general_purpose::STANDARD.encode(&nas_accept_msg);
 
         tracing::info!(
             "Built N1 PDU Session Establishment Accept for SUPI: {} with UP security policy - Integrity: {}, Confidentiality: {}",
@@ -884,7 +885,7 @@ async fn handle_path_switch(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let mut new_state = crate::types::SmContextState::Active;
+    let new_state = crate::types::SmContextState::Active;
     let mut cn_tunnel_info = None;
 
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
@@ -917,7 +918,6 @@ async fn handle_path_switch(
                 ));
             }
             Err(e) => {
-                new_state = crate::types::SmContextState::ModificationPending;
                 tracing::warn!(
                     "Failed to modify PFCP session for handover - SUPI: {}: {}",
                     sm_context.supi,

@@ -2,14 +2,13 @@ use crate::models::SmContext;
 use crate::services::pfcp::PfcpClient;
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::types::sm_context_transfer::{
-    FailedResource, FailedResourceType, SmContextData, SmContextTransferRequest,
+    SmContextData, SmContextTransferRequest,
     SmContextTransferResponse, SmContextValidator, TargetSmfCapabilities, TransferResponseCause,
 };
 use crate::types::SmContextState;
 use chrono::Utc;
 use mongodb::Database;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct ContextTransferTarget {

@@ -3,7 +3,6 @@ use crate::types::sm_context_transfer::{
     SmContextData, SmContextTransferRequest, SmContextValidator, TransferCause,
     TransferredSubscriptionData,
 };
-use chrono::Utc;
 use uuid::Uuid;
 
 pub struct ContextTransferSource;

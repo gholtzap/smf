@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use super::{N2SmInfo, PlmnId, Snssai, RefToBinaryData};
+use super::{N2SmInfo, PlmnId, RefToBinaryData};
 use super::nrf::Tai;
-use crate::models::{AnType, RatType, TunnelInfo, UserLocation};
+use crate::models::{TunnelInfo, UserLocation};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

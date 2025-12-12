@@ -4,9 +4,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-const PFCP_PORT: u16 = 8805;
 const MAX_PFCP_MESSAGE_SIZE: usize = 8192;
 
 pub type PfcpClient = Arc<PfcpClientInner>;
@@ -281,7 +280,7 @@ impl PfcpClientInner {
 
         let message_type = PfcpMessageType::from_u8(data[1])?;
 
-        let length = u16::from_be_bytes([data[2], data[3]]) as usize;
+        let _length = u16::from_be_bytes([data[2], data[3]]) as usize;
 
         let mut offset = 4;
         let seid = if has_seid {

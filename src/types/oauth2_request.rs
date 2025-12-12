@@ -1,6 +1,6 @@
 use crate::services::oauth2_client::OAuth2TokenClient;
 use anyhow::Result;
-use reqwest::{Client, RequestBuilder};
+use reqwest::RequestBuilder;
 use std::sync::Arc;
 
 pub struct OAuth2RequestBuilder {

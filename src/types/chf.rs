@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use super::{Snssai, PlmnId};
+use super::PlmnId;
 use std::collections::HashMap;
 
 pub use super::udm::Ambr;

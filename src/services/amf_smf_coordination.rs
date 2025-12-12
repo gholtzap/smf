@@ -5,10 +5,9 @@ use crate::types::amf_smf_coordination::{
     SmContextRetrieveRequest, SmContextRetrieveResponse, SmContextRetrieveResult,
     SmContextReleaseNotification, SmContextReleaseResponse,
 };
-use crate::types::sm_context_transfer::{SmContextData, TransferCause, TransferredSubscriptionData};
+use crate::types::sm_context_transfer::{SmContextData, TransferCause};
 use anyhow::{Context as AnyhowContext, Result};
 use mongodb::Database;
-use std::sync::Arc;
 
 pub struct AmfSmfCoordinationService {
     db: Database,
@@ -63,7 +62,7 @@ impl AmfSmfCoordinationService {
                 });
             }
 
-            let transfer_cause = match request.cause {
+            let _transfer_cause = match request.cause {
                 crate::types::SmContextRetrieveCause::InterSmfHandover => TransferCause::InterSmfHandover,
                 crate::types::SmContextRetrieveCause::SmfChange => TransferCause::SmfRelocation,
                 crate::types::SmContextRetrieveCause::SmfRelocation => TransferCause::SmfRelocation,

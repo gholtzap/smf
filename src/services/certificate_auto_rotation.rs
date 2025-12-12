@@ -145,7 +145,7 @@ impl CertificateAutoRotationService {
     async fn perform_rotation(
         &self,
         config: &AutoRotationConfig,
-        old_cert_id: &str,
+        _old_cert_id: &str,
     ) -> anyhow::Result<(String, String, String)> {
         let provider = certificate_provider::create_provider(
             config.provider_type,

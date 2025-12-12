@@ -495,7 +495,7 @@ impl NgapParser {
         let mut cause = None;
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -538,7 +538,7 @@ impl NgapParser {
         let mut qos_flow_mapping_indication = None;
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -584,7 +584,7 @@ impl NgapParser {
         let mut associated_qos_flow_list = Vec::new();
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -597,7 +597,7 @@ impl NgapParser {
                 }
                 1 => {
                     let mut list_decoder = PerDecoder::new(&ie_value_data);
-                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let _list_extension = list_decoder.read_bits(1)? == 1;
                     let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
 
                     for _ in 0..list_count {
@@ -649,7 +649,7 @@ impl NgapParser {
         for i in 0..ie_count {
             tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
 
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -664,7 +664,7 @@ impl NgapParser {
                 }
                 1 if additional_dl_qos_flow_per_tnl_information_present => {
                     let mut list_decoder = PerDecoder::new(&ie_value_data);
-                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let _list_extension = list_decoder.read_bits(1)? == 1;
                     let list_count = list_decoder.read_constrained_integer(1, 3)? as usize;
 
                     let mut additional_list = Vec::new();
@@ -681,7 +681,7 @@ impl NgapParser {
                 }
                 3 if qos_flow_failed_to_setup_list_present => {
                     let mut list_decoder = PerDecoder::new(&ie_value_data);
-                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let _list_extension = list_decoder.read_bits(1)? == 1;
                     let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
 
                     let mut failed_list = Vec::new();
@@ -724,7 +724,7 @@ impl NgapParser {
         let mut qos_flow_identifier = None;
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -766,7 +766,7 @@ impl NgapParser {
         let mut maximum_integrity_protected_data_rate_dl = None;
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -841,7 +841,7 @@ impl NgapParser {
         let mut security_indication = None;
 
         for _ in 0..ie_count {
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -896,7 +896,7 @@ impl NgapParser {
         for i in 0..ie_count {
             tracing::debug!("Parsing IE {}/{}", i + 1, ie_count);
 
-            let ie_extension = decoder.read_bits(1)? == 1;
+            let _ie_extension = decoder.read_bits(1)? == 1;
             let ie_id = decoder.read_constrained_integer(0, 65535)? as u32;
             let _ie_criticality = decoder.read_enumerated(2)?;
             decoder.align_to_byte();
@@ -922,7 +922,7 @@ impl NgapParser {
                 }
                 3 if qos_flow_accepted_list_present => {
                     let mut list_decoder = PerDecoder::new(&ie_value_data);
-                    let list_extension = list_decoder.read_bits(1)? == 1;
+                    let _list_extension = list_decoder.read_bits(1)? == 1;
                     let list_count = list_decoder.read_constrained_integer(1, 64)? as usize;
 
                     let mut accepted_list = Vec::new();

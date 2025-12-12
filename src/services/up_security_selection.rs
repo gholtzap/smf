@@ -1,6 +1,6 @@
 use crate::types::up_security::{
     CipheringAlgorithm, IntegrityAlgorithm, UeSecurityCapabilities,
-    UpSecurityContext, UpSecurityPolicy, MaximumIntegrityProtectedDataRate
+    UpSecurityContext, UpSecurityPolicy
 };
 
 pub struct UpSecuritySelector;

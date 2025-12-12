@@ -1,14 +1,13 @@
 use crate::services::ocsp_codec::OcspCodec;
 use crate::types::ocsp::{
     OcspRequest, OcspResponse, OcspResponseStatus,
-    BasicOcspResponse, CertId, CertStatus, OcspCacheEntry,
+    CertId, CertStatus, OcspCacheEntry,
 };
 use crate::types::Certificate;
 use anyhow::{anyhow, Result};
 use mongodb::{bson::{self, doc}, Database};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use std::time::Instant;
 use chrono::Utc;
 use x509_cert::{
     der::Decode,

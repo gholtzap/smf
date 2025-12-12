@@ -277,7 +277,7 @@ impl PacketFilter {
                 if let Some(IpAddr::V6(local_ip)) = packet.local_ip {
                     let addr_bytes = address.octets();
                     let ip_bytes = local_ip.octets();
-                    let prefix_bytes = (*prefix_length as usize + 7) / 8;
+                    let _prefix_bytes = (*prefix_length as usize + 7) / 8;
                     let full_bytes = *prefix_length as usize / 8;
                     let remaining_bits = *prefix_length as usize % 8;
 

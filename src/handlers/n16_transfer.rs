@@ -7,7 +7,7 @@ use axum::{
 use crate::db::AppState;
 use crate::services::context_transfer_target::ContextTransferTarget;
 use crate::types::sm_context_transfer::{
-    SmContextTransferRequest, SmContextTransferResponse, TransferResponseCause,
+    SmContextTransferRequest, SmContextTransferResponse,
 };
 
 pub async fn receive_sm_context_transfer(

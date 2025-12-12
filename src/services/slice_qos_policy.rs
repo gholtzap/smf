@@ -1,4 +1,4 @@
-use crate::types::{BitRate, QosFlow, QosFlowType, SliceQosPolicy, Snssai};
+use crate::types::{BitRate, QosFlow, SliceQosPolicy, Snssai};
 
 pub struct SliceQosPolicyService {
     policies: Vec<SliceQosPolicy>,

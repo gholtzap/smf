@@ -2,9 +2,8 @@ use crate::types::Certificate;
 use crate::types::ocsp::CertStatus;
 use crate::services::ocsp_client::OcspClient;
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use sha2::{Digest, Sha256};
-use std::time::{Duration, SystemTime};
 use x509_cert::{
     der::Decode,
     Certificate as X509Certificate,

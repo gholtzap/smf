@@ -6,7 +6,6 @@ use crate::types::{
 };
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 
 pub struct NrfRegistrationService {

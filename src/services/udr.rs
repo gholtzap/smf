@@ -1,5 +1,5 @@
 use crate::types::{
-    udr::{SessionManagementSubscriptionData, SmfSelectionSubscriptionData, UdrQueryParams},
+    udr::{SessionManagementSubscriptionData, SmfSelectionSubscriptionData},
     Snssai, PlmnId,
 };
 use crate::types::nrf::ProblemDetails;

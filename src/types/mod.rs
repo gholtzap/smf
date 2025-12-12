@@ -49,14 +49,10 @@ pub use dnn::*;
 pub use amf::*;
 pub use ssc::*;
 pub use handover::*;
-pub use udr::*;
-pub use oauth2::*;
-pub use ngap::*;
 pub use up_security::*;
 pub use qos_flow_mapping::*;
 pub use nas::*;
 pub use upf_selection::*;
-pub use sm_context_transfer::*;
 pub use amf_smf_coordination::*;
 pub use certificate::*;
 pub use certificate_notification::*;
@@ -64,7 +60,6 @@ pub use certificate_rotation::*;
 pub use certificate_auto_rotation::*;
 pub use certificate_audit::*;
 pub use crl::*;
-pub use ocsp::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
