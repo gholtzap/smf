@@ -85,8 +85,11 @@ impl UpfHealthMonitor {
                     info!("PFCP Association established with {}", self.upf_address);
                     Ok(())
                 } else {
-                    warn!("Unexpected response to Association Setup Request");
-                    Err(anyhow::anyhow!("Unexpected message type"))
+                    warn!(
+                        "Unexpected response to Association Setup Request: received {:?}, expected AssociationSetupResponse",
+                        response.message_type
+                    );
+                    Err(anyhow::anyhow!("Unexpected message type: {:?}", response.message_type))
                 }
             }
             Err(e) => {
@@ -120,9 +123,12 @@ impl UpfHealthMonitor {
                     debug!("Received heartbeat response from {}", self.upf_address);
                     Ok(())
                 } else {
-                    warn!("Unexpected response to heartbeat request");
+                    warn!(
+                        "Unexpected response to heartbeat request: received {:?}, expected HeartbeatResponse",
+                        response.message_type
+                    );
                     self.increment_failure_count().await?;
-                    Err(anyhow::anyhow!("Unexpected message type"))
+                    Err(anyhow::anyhow!("Unexpected message type: {:?}", response.message_type))
                 }
             }
             Err(e) => {
@@ -190,13 +196,19 @@ impl UpfHealthMonitor {
             upf_node.status
         };
 
+        let status_str = match new_status {
+            UpfStatus::Active => "ACTIVE",
+            UpfStatus::Inactive => "INACTIVE",
+            UpfStatus::Unknown => "UNKNOWN",
+        };
+
         collection
             .update_one(
                 doc! { "_id": &self.upf_address },
                 doc! {
                     "$set": {
                         "consecutive_failures": new_failure_count,
-                        "status": mongodb::bson::to_bson(&new_status)?,
+                        "status": status_str,
                         "updated_at": mongodb::bson::DateTime::now()
                     }
                 },

@@ -271,19 +271,24 @@ impl PfcpClientInner {
 
     fn decode_message(data: &[u8]) -> Result<PfcpMessage> {
         if data.len() < 8 {
-            return Err(anyhow!("PFCP message too short"));
+            return Err(anyhow!("PFCP message too short: {} bytes", data.len()));
         }
 
         let flags = data[0];
         let version = flags >> 5;
         let has_seid = (flags & 0x01) != 0;
 
-        let message_type = PfcpMessageType::from_u8(data[1])?;
+        let message_type_value = data[1];
+        let message_type = PfcpMessageType::from_u8(message_type_value)
+            .map_err(|e| anyhow!("Unknown PFCP message type {}: {}. Message data: {:02x?}", message_type_value, e, &data[..std::cmp::min(data.len(), 16)]))?;
 
         let _length = u16::from_be_bytes([data[2], data[3]]) as usize;
 
         let mut offset = 4;
         let seid = if has_seid {
+            if data.len() < offset + 8 {
+                return Err(anyhow!("PFCP message too short for SEID"));
+            }
             let seid_bytes = &data[offset..offset + 8];
             offset += 8;
             Some(u64::from_be_bytes(seid_bytes.try_into()?))
@@ -291,12 +296,21 @@ impl PfcpClientInner {
             None
         };
 
+        if data.len() < offset + 4 {
+            return Err(anyhow!("PFCP message too short for sequence number"));
+        }
+
         let mut seq_bytes = [0u8; 4];
         seq_bytes[1..4].copy_from_slice(&data[offset..offset + 3]);
         let sequence_number = u32::from_be_bytes(seq_bytes);
         offset += 4;
 
         let payload = data[offset..].to_vec();
+
+        debug!(
+            "Decoded PFCP message: type={:?}, version={}, seid={:?}, seq={}, payload_len={}",
+            message_type, version, seid, sequence_number, payload.len()
+        );
 
         Ok(PfcpMessage {
             version,

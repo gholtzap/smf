@@ -356,12 +356,18 @@ impl NrfClient {
             self.nrf_uri, self.nf_instance_id
         );
 
-        let empty_patch: Vec<serde_json::Value> = vec![];
+        let patch_doc = serde_json::json!([
+            {
+                "op": "replace",
+                "path": "/nfStatus",
+                "value": "REGISTERED"
+            }
+        ]);
 
         let response = self
             .client
             .patch(&url)
-            .json(&empty_patch)
+            .json(&patch_doc)
             .with_oauth2_auth(
                 self.oauth2_client.clone(),
                 Some("NRF".to_string()),
