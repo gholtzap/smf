@@ -120,6 +120,20 @@ impl PfcpClientInner {
         Ok(())
     }
 
+    pub async fn send_heartbeat_response(&self, seq: u32) -> Result<()> {
+        let message = PfcpMessage {
+            version: 1,
+            message_type: PfcpMessageType::HeartbeatResponse,
+            seid: None,
+            sequence_number: seq,
+            payload: vec![],
+        };
+
+        self.send_message(&message).await?;
+        debug!("Sent PFCP Heartbeat Response (seq: {})", seq);
+        Ok(())
+    }
+
     pub async fn send_association_setup_request(&self, node_id: NodeId) -> Result<()> {
         let seq = self.next_sequence_number().await;
 
@@ -135,6 +149,22 @@ impl PfcpClientInner {
 
         self.send_message(&message).await?;
         debug!("Sent PFCP Association Setup Request (seq: {})", seq);
+        Ok(())
+    }
+
+    pub async fn send_association_setup_response(&self, seq: u32, node_id: NodeId) -> Result<()> {
+        let payload = serde_json::to_vec(&node_id)?;
+
+        let message = PfcpMessage {
+            version: 1,
+            message_type: PfcpMessageType::AssociationSetupResponse,
+            seid: None,
+            sequence_number: seq,
+            payload,
+        };
+
+        self.send_message(&message).await?;
+        debug!("Sent PFCP Association Setup Response (seq: {})", seq);
         Ok(())
     }
 

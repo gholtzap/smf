@@ -100,6 +100,8 @@ The server will start on `http://localhost:8080` by default.
 - UPF node discovery and health monitoring
   - Periodic heartbeat requests (30 second intervals)
   - PFCP association setup and management
+  - Bidirectional PFCP association establishment (client and server mode)
+  - Handling of UPF-initiated association requests and heartbeats
   - UPF status tracking in MongoDB (Active/Inactive/Unknown)
   - Automatic failure detection and status updates
   - Consecutive failure counting with configurable threshold
@@ -116,6 +118,7 @@ The server will start on `http://localhost:8080` by default.
   - SMF service profile creation and registration
   - Automatic registration on startup
   - Periodic heartbeat mechanism (60 second intervals)
+  - Automatic re-registration on NRF registration loss (404 recovery)
   - Graceful deregistration on shutdown
   - NFService advertisement for nsmf-pdusession and nsmf-event-exposure
   - SMF-specific info including S-NSSAI and DNN support

@@ -9,6 +9,23 @@ use reqwest::{Client, StatusCode};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[derive(Debug)]
+pub enum NrfError {
+    NotFound(String),
+    Other(String),
+}
+
+impl std::fmt::Display for NrfError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NrfError::NotFound(msg) => write!(f, "NRF Not Found: {}", msg),
+            NrfError::Other(msg) => write!(f, "NRF Error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for NrfError {}
+
 pub struct NrfClient {
     client: Client,
     nrf_uri: String,
@@ -386,13 +403,21 @@ impl NrfClient {
 
                 Ok(())
             }
+            StatusCode::NOT_FOUND => {
+                let error_body = response.text().await.unwrap_or_default();
+                Err(NrfError::NotFound(format!(
+                    "NF Instance with ID {} not found: {}",
+                    self.nf_instance_id,
+                    error_body
+                )).into())
+            }
             status => {
                 let error_body = response.text().await.unwrap_or_default();
-                Err(anyhow::anyhow!(
+                Err(NrfError::Other(format!(
                     "NRF heartbeat failed with status {}: {}",
                     status,
                     error_body
-                ))
+                )).into())
             }
         }
     }

@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = nrf_registration.register().await {
             tracing::error!("Failed to register with NRF: {}", e);
         } else {
-            nrf_registration.start_heartbeat().await;
+            nrf_registration.clone().start_heartbeat().await;
         }
     }
 

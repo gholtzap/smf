@@ -70,7 +70,7 @@ impl UpfHealthMonitor {
         };
 
         self.pfcp_client
-            .send_association_setup_request(node_id)
+            .send_association_setup_request(node_id.clone())
             .await?;
 
         info!("Sent PFCP Association Setup Request to {}", self.upf_address);
@@ -83,6 +83,12 @@ impl UpfHealthMonitor {
                 if response.message_type == crate::services::pfcp::PfcpMessageType::AssociationSetupResponse {
                     self.update_association_status(true).await?;
                     info!("PFCP Association established with {}", self.upf_address);
+                    Ok(())
+                } else if response.message_type == crate::services::pfcp::PfcpMessageType::AssociationSetupRequest {
+                    info!("Received Association Setup Request from UPF, sending response");
+                    self.pfcp_client.send_association_setup_response(response.sequence_number, node_id).await?;
+                    self.update_association_status(true).await?;
+                    info!("PFCP Association established with {} (UPF initiated)", self.upf_address);
                     Ok(())
                 } else {
                     warn!(
@@ -121,6 +127,12 @@ impl UpfHealthMonitor {
                     let response_time = chrono::Utc::now();
                     self.update_heartbeat_success(response_time).await?;
                     debug!("Received heartbeat response from {}", self.upf_address);
+                    Ok(())
+                } else if response.message_type == crate::services::pfcp::PfcpMessageType::HeartbeatRequest {
+                    debug!("Received Heartbeat Request from UPF, sending response");
+                    self.pfcp_client.send_heartbeat_response(response.sequence_number).await?;
+                    let response_time = chrono::Utc::now();
+                    self.update_heartbeat_success(response_time).await?;
                     Ok(())
                 } else {
                     warn!(

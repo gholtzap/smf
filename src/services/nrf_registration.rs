@@ -141,25 +141,37 @@ impl NrfRegistrationService {
         Ok(())
     }
 
-    pub async fn start_heartbeat(&self) {
-        let nrf_client = self.nrf_client.clone();
+    pub async fn start_heartbeat(self: Arc<Self>) {
         let heartbeat_interval = self.heartbeat_interval;
+        let service = self.clone();
 
         tokio::spawn(async move {
             let mut interval_timer = interval(heartbeat_interval);
             loop {
                 interval_timer.tick().await;
-                match nrf_client.heartbeat().await {
+                match service.nrf_client.heartbeat().await {
                     Ok(_) => {
                         tracing::debug!("NRF heartbeat sent successfully");
                     }
                     Err(e) => {
-                        tracing::error!("Failed to send NRF heartbeat: {}", e);
+                        if e.to_string().contains("NRF Not Found") {
+                            tracing::warn!("NRF registration lost (404), attempting re-registration");
+                            match service.register().await {
+                                Ok(_) => {
+                                    tracing::info!("Successfully re-registered with NRF after 404");
+                                }
+                                Err(re_err) => {
+                                    tracing::error!("Failed to re-register with NRF: {}", re_err);
+                                }
+                            }
+                        } else {
+                            tracing::error!("Failed to send NRF heartbeat: {}", e);
+                        }
                     }
                 }
             }
         });
 
-        tracing::info!("NRF heartbeat task started with interval of {:?}", self.heartbeat_interval);
+        tracing::info!("NRF heartbeat task started with interval of {:?}", heartbeat_interval);
     }
 }
