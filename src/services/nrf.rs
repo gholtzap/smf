@@ -369,22 +369,13 @@ impl NrfClient {
 
     pub async fn heartbeat(&self) -> Result<()> {
         let url = format!(
-            "{}/nnrf-nfm/v1/nf-instances/{}",
+            "{}/nnrf-nfm/v1/nf-instances/{}/heartbeat",
             self.nrf_uri, self.nf_instance_id
         );
 
-        let patch_doc = serde_json::json!([
-            {
-                "op": "replace",
-                "path": "/nfStatus",
-                "value": "REGISTERED"
-            }
-        ]);
-
         let response = self
             .client
-            .patch(&url)
-            .json(&patch_doc)
+            .put(&url)
             .with_oauth2_auth(
                 self.oauth2_client.clone(),
                 Some("NRF".to_string()),
@@ -395,7 +386,7 @@ impl NrfClient {
             .context("Failed to send heartbeat to NRF")?;
 
         match response.status() {
-            StatusCode::NO_CONTENT | StatusCode::OK => {
+            StatusCode::NO_CONTENT => {
                 tracing::debug!(
                     "Heartbeat sent successfully for NF instance {}",
                     self.nf_instance_id
