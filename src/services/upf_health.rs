@@ -34,6 +34,8 @@ impl UpfHealthMonitor {
 
         if let Err(e) = self.setup_association().await {
             warn!("Failed to setup PFCP association with UPF: {}", e);
+        } else {
+            time::sleep(Duration::from_millis(500)).await;
         }
 
         let mut interval = time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
@@ -142,6 +144,23 @@ impl UpfHealthMonitor {
                 } else if response.message_type == crate::services::pfcp::PfcpMessageType::HeartbeatRequest {
                     debug!("Received Heartbeat Request from UPF, sending response");
                     self.pfcp_client.send_heartbeat_response(response.sequence_number).await?;
+                    let response_time = chrono::Utc::now();
+                    self.update_heartbeat_success(response_time).await?;
+                    Ok(())
+                } else if response.message_type == crate::services::pfcp::PfcpMessageType::AssociationSetupResponse {
+                    info!("Received delayed Association Setup Response during heartbeat, updating association status");
+                    self.update_association_status(true).await?;
+                    let response_time = chrono::Utc::now();
+                    self.update_heartbeat_success(response_time).await?;
+                    Ok(())
+                } else if response.message_type == crate::services::pfcp::PfcpMessageType::AssociationSetupRequest {
+                    info!("Received Association Setup Request from UPF during heartbeat, sending response");
+                    let node_id = NodeId {
+                        node_id_type: crate::types::NodeIdType::Ipv4Address,
+                        node_id_value: self.pfcp_client.local_address()?.ip().to_string(),
+                    };
+                    self.pfcp_client.send_association_setup_response(response.sequence_number, node_id).await?;
+                    self.update_association_status(true).await?;
                     let response_time = chrono::Utc::now();
                     self.update_heartbeat_success(response_time).await?;
                     Ok(())
