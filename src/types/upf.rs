@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use mongodb::bson::DateTime as BsonDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpfNode {
@@ -7,12 +7,12 @@ pub struct UpfNode {
     pub id: String,
     pub address: String,
     pub status: UpfStatus,
-    pub last_heartbeat: Option<DateTime<Utc>>,
-    pub last_heartbeat_response: Option<DateTime<Utc>>,
+    pub last_heartbeat: Option<BsonDateTime>,
+    pub last_heartbeat_response: Option<BsonDateTime>,
     pub association_established: bool,
     pub consecutive_failures: u32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: BsonDateTime,
+    pub updated_at: BsonDateTime,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,8 +33,8 @@ impl UpfNode {
             last_heartbeat_response: None,
             association_established: false,
             consecutive_failures: 0,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: BsonDateTime::now(),
+            updated_at: BsonDateTime::now(),
         }
     }
 }
