@@ -106,6 +106,17 @@ impl UpfHealthMonitor {
     }
 
     async fn send_heartbeat(&self) -> Result<()> {
+        let association_established = self.is_association_established().await?;
+
+        if !association_established {
+            info!("PFCP association not established, attempting setup before heartbeat");
+            if let Err(e) = self.setup_association().await {
+                warn!("Failed to establish PFCP association: {}", e);
+                self.increment_failure_count().await?;
+                return Err(e);
+            }
+        }
+
         let now = chrono::Utc::now();
 
         self.update_heartbeat_sent(now).await?;
@@ -149,6 +160,17 @@ impl UpfHealthMonitor {
                 Err(e)
             }
         }
+    }
+
+    async fn is_association_established(&self) -> Result<bool> {
+        let collection = self.db.collection::<UpfNode>("upf_nodes");
+
+        let upf_node = collection
+            .find_one(doc! { "_id": &self.upf_address })
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("UPF node not found"))?;
+
+        Ok(upf_node.association_established)
     }
 
     async fn update_heartbeat_sent(&self, timestamp: chrono::DateTime<chrono::Utc>) -> Result<()> {
