@@ -66,18 +66,7 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     {
         Ok(client) => {
             tracing::info!("PFCP client initialized successfully");
-
-            let upf_address = format!("{}:{}", config.upf_host, config.upf_port);
-            let health_monitor = crate::services::upf_health::UpfHealthMonitor::new(
-                client.clone(),
-                db.clone(),
-                upf_address,
-            );
-
-            tokio::spawn(async move {
-                health_monitor.start().await;
-            });
-
+            tracing::info!("UPF health monitoring disabled for testing");
             Some(client)
         }
         Err(e) => {
@@ -194,23 +183,8 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
     let upf_selection_service = Arc::new(UpfSelectionService::new(db.clone()));
     tracing::info!("UPF selection service initialized");
 
-    let cert_renewal_service = Arc::new(crate::services::certificate_renewal::CertificateRenewalService::with_defaults(
-        Arc::new(db.clone())
-    ));
-    let cert_renewal_monitor = cert_renewal_service.clone();
-    tokio::spawn(async move {
-        cert_renewal_monitor.start_monitoring().await;
-    });
-    tracing::info!("Certificate renewal monitoring service started");
-
-    let cert_auto_rotation_service = Arc::new(crate::services::certificate_auto_rotation::CertificateAutoRotationService::with_defaults(
-        Arc::new(db.clone())
-    ));
-    let cert_auto_rotation_monitor = cert_auto_rotation_service.clone();
-    tokio::spawn(async move {
-        cert_auto_rotation_monitor.start_monitoring().await;
-    });
-    tracing::info!("Certificate auto-rotation service started");
+    tracing::info!("Certificate renewal monitoring service disabled for testing");
+    tracing::info!("Certificate auto-rotation service disabled for testing");
 
     let inter_smf_handover_service = if let Some(ref pfcp) = pfcp_client {
         let n16_client = Arc::new(N16Client::new(config.nf_instance_id.clone()));

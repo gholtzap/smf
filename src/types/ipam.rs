@@ -17,7 +17,9 @@ pub struct IpPool {
     pub ipv6_dns_primary: Option<String>,
     pub ipv6_dns_secondary: Option<String>,
     pub allocated_ipv6_prefixes: Vec<String>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -30,6 +32,7 @@ pub struct IpAllocation {
     pub pool_id: String,
     pub sm_context_ref: String,
     pub supi: String,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub allocated_at: DateTime<Utc>,
 }
 

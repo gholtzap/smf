@@ -8,14 +8,20 @@ pub struct Crl {
     pub issuer: String,
     pub distribution_point_url: String,
     pub crl_der: Vec<u8>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub this_update: DateTime<Utc>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub next_update: Option<DateTime<Utc>>,
     pub revoked_certificate_count: usize,
     pub status: CrlStatus,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub last_fetch_attempt: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub last_successful_fetch: DateTime<Utc>,
     pub fetch_failure_count: u32,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -83,8 +89,10 @@ pub struct RevokedCertificate {
     pub id: String,
     pub crl_id: String,
     pub serial_number: String,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub revocation_date: DateTime<Utc>,
     pub revocation_reason: Option<RevocationReason>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -126,6 +134,7 @@ pub struct CrlFetchAttempt {
     #[serde(rename = "_id")]
     pub id: String,
     pub distribution_point_url: String,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub attempt_time: DateTime<Utc>,
     pub success: bool,
     pub error_message: Option<String>,

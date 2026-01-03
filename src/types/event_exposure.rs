@@ -53,6 +53,7 @@ pub struct StoredEventSubscription {
     pub dnn: Option<String>,
     pub snssai: Option<super::Snssai>,
     pub pdu_session_id: Option<u8>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -67,6 +68,7 @@ pub struct EventNotification {
 #[serde(rename_all = "camelCase")]
 pub struct EventReport {
     pub event: EventType,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub time_stamp: DateTime<Utc>,
     pub supi: Option<String>,
     pub gpsi: Option<String>,

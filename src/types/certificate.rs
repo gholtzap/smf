@@ -13,12 +13,16 @@ pub struct Certificate {
     pub subject: String,
     pub issuer: String,
     pub serial_number: String,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub not_before: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub not_after: DateTime<Utc>,
     pub fingerprint_sha256: String,
     pub key_type: KeyType,
     pub key_size_bits: u32,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 

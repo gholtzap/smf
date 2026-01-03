@@ -12,10 +12,14 @@ pub struct AutoRotationConfig {
     pub rotation_threshold_days: i64,
     pub provider_type: CertificateProviderType,
     pub provider_config: serde_json::Value,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub last_rotation_attempt: Option<DateTime<Utc>>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub last_rotation_success: Option<DateTime<Utc>>,
     pub last_rotation_error: Option<String>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -106,6 +110,7 @@ pub struct AutoRotationAttempt {
     pub config_id: String,
     pub certificate_name: String,
     pub certificate_purpose: CertificatePurpose,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub attempted_at: DateTime<Utc>,
     pub success: bool,
     pub error_message: Option<String>,

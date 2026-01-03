@@ -636,7 +636,7 @@ pub async fn create_pdu_session(
         );
 
         Some(crate::types::RefToBinaryData {
-            content_id: encoded,
+            content_id: encoded.clone(),
         })
     } else {
         tracing::debug!(
@@ -645,6 +645,8 @@ pub async fn create_pdu_session(
         );
         None
     };
+
+    let n1_sm_msg_simple = n1_sm_info_to_ue.as_ref().map(|info| info.content_id.clone());
 
     let response = PduSessionCreatedData {
         pdu_session_type: sm_context.pdu_session_type.clone(),
@@ -660,19 +662,14 @@ pub async fn create_pdu_session(
         dns_secondary: ip_allocation.dns_secondary.clone(),
         mtu: sm_context.mtu,
         n1_sm_info_to_ue,
+        n1_sm_msg: n1_sm_msg_simple,
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: sm_context.session_ambr.clone(),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         dnai_list: None,
-        n2_sm_info: Some(N2SmInfo {
-            content_id: "n2-sm-info".to_string(),
-            n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::PduResSetupReq,
-                ngap_data: "base64_encoded_ngap_data".to_string(),
-            },
-        }),
+        n2_sm_info: Some("placeholder".to_string()),
         n2_sm_info_type: Some(crate::models::N2SmInfoType::PduResSetupReq),
         sm_context_ref: sm_context.id.clone(),
     };

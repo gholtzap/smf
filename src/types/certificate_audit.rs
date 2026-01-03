@@ -10,6 +10,7 @@ pub struct CertificateAuditLog {
     pub certificate_name: String,
     pub certificate_purpose: CertificatePurpose,
     pub event_type: AuditEventType,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub timestamp: DateTime<Utc>,
     pub actor: Option<String>,
     pub ip_address: Option<String>,
@@ -42,6 +43,7 @@ pub struct CertificateUsageRecord {
     pub certificate_name: String,
     pub certificate_purpose: CertificatePurpose,
     pub usage_type: CertificateUsageType,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub timestamp: DateTime<Utc>,
     pub service: Option<String>,
     pub endpoint: Option<String>,
@@ -169,7 +171,9 @@ pub struct AuditLogQuery {
     pub certificate_id: Option<String>,
     pub certificate_name: Option<String>,
     pub event_type: Option<AuditEventType>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub start_time: Option<DateTime<Utc>>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub end_time: Option<DateTime<Utc>>,
     pub actor: Option<String>,
     pub success: Option<bool>,
@@ -182,7 +186,9 @@ pub struct UsageRecordQuery {
     pub certificate_id: Option<String>,
     pub certificate_name: Option<String>,
     pub usage_type: Option<CertificateUsageType>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub start_time: Option<DateTime<Utc>>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub end_time: Option<DateTime<Utc>>,
     pub service: Option<String>,
     pub success: Option<bool>,

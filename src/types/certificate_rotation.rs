@@ -26,6 +26,7 @@ pub struct CertificateRotationRecord {
     pub certificate_purpose: String,
     pub old_certificate_id: String,
     pub new_certificate_id: String,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub rotated_at: DateTime<Utc>,
     pub rotated_by: Option<String>,
     pub rotation_reason: Option<String>,

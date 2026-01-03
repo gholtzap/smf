@@ -71,10 +71,12 @@ pub struct SscModes {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SscMode {
+    #[serde(rename = "SSC_MODE_1")]
     SscMode1,
+    #[serde(rename = "SSC_MODE_2")]
     SscMode2,
+    #[serde(rename = "SSC_MODE_3")]
     SscMode3,
 }
 

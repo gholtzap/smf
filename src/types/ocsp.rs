@@ -105,6 +105,7 @@ pub struct BasicOcspResponse {
 pub struct ResponseData {
     pub version: u8,
     pub responder_id: ResponderId,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub produced_at: DateTime<Utc>,
     pub responses: Vec<SingleResponse>,
     pub response_extensions: Option<Vec<Extension>>,
@@ -121,7 +122,9 @@ pub enum ResponderId {
 pub struct SingleResponse {
     pub cert_id: CertId,
     pub cert_status: CertStatus,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub this_update: DateTime<Utc>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub next_update: Option<DateTime<Utc>>,
     pub single_extensions: Option<Vec<Extension>>,
 }
@@ -150,9 +153,13 @@ pub struct OcspCacheEntry {
     pub id: String,
     pub cert_id: CertId,
     pub cert_status: CertStatus,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub this_update: DateTime<Utc>,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub next_update: Option<DateTime<Utc>>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub produced_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub cached_at: DateTime<Utc>,
     pub responder_url: String,
 }

@@ -149,14 +149,18 @@ pub struct PduSessionCreatedData {
     pub dns_primary: Option<String>,
     pub dns_secondary: Option<String>,
     pub mtu: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n1_sm_msg: Option<String>,
     pub eps_pdn_cnx_info: Option<EpsPdnCnxInfo>,
     pub supported_features: Option<String>,
     pub session_ambr: Option<Ambr>,
     pub cn_tunnel_info: Option<TunnelInfo>,
     pub additional_cn_tunnel_info: Option<TunnelInfo>,
     pub dnai_list: Option<Vec<String>>,
-    pub n2_sm_info: Option<N2SmInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n2_sm_info: Option<String>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
     pub sm_context_ref: String,
 }
@@ -214,7 +218,9 @@ pub struct SmContext {
     pub ue_security_capabilities: Option<UeSecurityCapabilities>,
     pub session_ambr: Option<Ambr>,
     pub upf_address: Option<String>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 

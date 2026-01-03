@@ -48,12 +48,17 @@ impl UdmClient {
         let mut query_params = Vec::new();
 
         if let Some(s) = snssai {
-            let snssai_str = if let Some(sd) = &s.sd {
-                format!("{}-{}", s.sst, sd)
+            let snssai_json = if let Some(sd) = &s.sd {
+                serde_json::json!({
+                    "sst": s.sst,
+                    "sd": sd
+                })
             } else {
-                s.sst.to_string()
+                serde_json::json!({
+                    "sst": s.sst
+                })
             };
-            query_params.push(format!("single-nssai={}", urlencoding::encode(&snssai_str)));
+            query_params.push(format!("single-nssai={}", urlencoding::encode(&snssai_json.to_string())));
         }
 
         if let Some(d) = dnn {
@@ -61,8 +66,11 @@ impl UdmClient {
         }
 
         if let Some(p) = plmn_id {
-            let plmn_str = format!("{}-{}", p.mcc, p.mnc);
-            query_params.push(format!("plmn-id={}", urlencoding::encode(&plmn_str)));
+            let plmn_json = serde_json::json!({
+                "mcc": p.mcc,
+                "mnc": p.mnc
+            });
+            query_params.push(format!("plmn-id={}", urlencoding::encode(&plmn_json.to_string())));
         }
 
         if !query_params.is_empty() {
@@ -84,10 +92,21 @@ impl UdmClient {
 
         match response.status() {
             StatusCode::OK => {
-                let sm_data: SessionManagementSubscriptionData = response
-                    .json()
+                let response_text = response
+                    .text()
                     .await
-                    .context("Failed to parse SM subscription data from UDM")?;
+                    .context("Failed to read response body from UDM")?;
+
+                let sm_data_array: Vec<SessionManagementSubscriptionData> = serde_json::from_str(&response_text)
+                    .map_err(|e| {
+                        tracing::error!("Failed to deserialize UDM response: {}. Response was: {}", e, response_text);
+                        anyhow::anyhow!("Failed to parse SM subscription data from UDM: {}", e)
+                    })?;
+
+                let sm_data = sm_data_array
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("UDM returned empty SM data array"))?;
 
                 tracing::info!(
                     "Successfully retrieved SM subscription data for SUPI {} from UDM",

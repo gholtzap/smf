@@ -9,12 +9,16 @@ pub struct CertificateRenewalNotification {
     pub certificate_name: String,
     pub severity: NotificationSeverity,
     pub days_until_expiration: i64,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub expiration_date: DateTime<Utc>,
     pub message: String,
     pub acknowledged: bool,
+    #[serde(with = "crate::utils::serde_helpers::optional_datetime")]
     pub acknowledged_at: Option<DateTime<Utc>>,
     pub acknowledged_by: Option<String>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
