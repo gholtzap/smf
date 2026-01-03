@@ -57,7 +57,6 @@ pub struct SmContextData {
     pub ue_security_capabilities: Option<UeSecurityCapabilities>,
     pub session_ambr: Option<Ambr>,
     pub upf_address: Option<String>,
-    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
     pub pcf_id: Option<String>,
     pub pcf_group_id: Option<String>,
@@ -137,7 +136,6 @@ pub struct SmContextTransferAck {
 pub struct ReleasedResource {
     pub resource_type: String,
     pub resource_id: String,
-    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub released_at: DateTime<Utc>,
 }
 
