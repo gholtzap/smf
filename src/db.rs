@@ -49,6 +49,8 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 
     init_indexes(&db).await?;
 
+    cleanup_stale_sessions(&db).await?;
+
     crate::services::ipam::IpamService::init_default_pool(&db).await?;
 
     let notification_service = Arc::new(NotificationService::new());
@@ -218,6 +220,33 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
         upf_selection_service,
         inter_smf_handover_service,
     })
+}
+
+async fn cleanup_stale_sessions(db: &Database) -> anyhow::Result<()> {
+    let sm_contexts_collection = db.collection::<SmContext>("sm_contexts");
+
+    let result = sm_contexts_collection.delete_many(doc! {}).await?;
+
+    if result.deleted_count > 0 {
+        tracing::info!(
+            "Cleaned up {} stale PDU sessions from previous SMF instance",
+            result.deleted_count
+        );
+    } else {
+        tracing::info!("No stale PDU sessions found");
+    }
+
+    let ip_allocations_collection = db.collection::<mongodb::bson::Document>("ip_allocations");
+    let ip_result = ip_allocations_collection.delete_many(doc! {}).await?;
+
+    if ip_result.deleted_count > 0 {
+        tracing::info!(
+            "Cleaned up {} stale IP allocations from previous SMF instance",
+            ip_result.deleted_count
+        );
+    }
+
+    Ok(())
 }
 
 async fn init_indexes(db: &Database) -> anyhow::Result<()> {

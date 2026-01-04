@@ -163,6 +163,27 @@ pub struct PduSessionCreatedData {
     pub n2_sm_info: Option<String>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
     pub sm_context_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upf_tunnel_info: Option<UpfTunnelInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qos_flow_list: Option<Vec<QosFlowInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_ambr_downlink: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_ambr_uplink: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpfTunnelInfo {
+    pub teid: u32,
+    pub ipv4_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QosFlowInfo {
+    pub qfi: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

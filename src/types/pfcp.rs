@@ -17,6 +17,7 @@ pub struct PfcpSessionEstablishmentRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PfcpSessionEstablishmentResponse {
     pub node_id: NodeId,
+    #[serde(default = "default_pfcp_cause")]
     pub cause: PfcpCause,
     pub offending_ie: Option<u16>,
     pub f_seid: Option<FSeid>,
@@ -24,6 +25,10 @@ pub struct PfcpSessionEstablishmentResponse {
     pub load_control_information: Option<LoadControlInformation>,
     pub overload_control_information: Option<OverloadControlInformation>,
     pub failed_rule_id: Option<FailedRuleId>,
+}
+
+fn default_pfcp_cause() -> PfcpCause {
+    PfcpCause::RequestAccepted
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

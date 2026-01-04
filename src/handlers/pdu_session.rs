@@ -553,6 +553,9 @@ pub async fn create_pdu_session(
         }
     }
 
+    let mut upf_teid: Option<u32> = None;
+    let mut upf_addr: Option<std::net::Ipv4Addr> = None;
+
     if let Some(ref pfcp_client) = state.pfcp_client {
         let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
 
@@ -569,7 +572,7 @@ pub async fn create_pdu_session(
                 &sm_context.qos_flows,
                 sm_context.up_security_context.as_ref(),
             ).await {
-            Ok(_) => {
+            Ok(pfcp_response) => {
                 sm_context.pfcp_session_id = Some(seid);
                 sm_context.state = crate::types::SmContextState::Active;
                 tracing::info!(
@@ -577,6 +580,31 @@ pub async fn create_pdu_session(
                     payload.supi,
                     seid
                 );
+
+                if let Some(ref created_pdrs) = pfcp_response.created_pdr {
+                    for created_pdr in created_pdrs {
+                        if let Some(ref f_teid) = created_pdr.local_f_teid {
+                            upf_teid = Some(f_teid.teid);
+                            upf_addr = f_teid.ipv4_address;
+                            tracing::info!(
+                                "Extracted UPF F-TEID from Created PDR: TEID={}, IP={:?}",
+                                f_teid.teid,
+                                f_teid.ipv4_address
+                            );
+                            break;
+                        }
+                    }
+                }
+
+                if upf_teid.is_none() {
+                    upf_teid = Some(seid as u32);
+                    upf_addr = Some(upf_ipv4);
+                    tracing::info!(
+                        "UPF did not return Created PDR, using SEID as TEID: TEID={}, IP={}",
+                        seid as u32,
+                        upf_ipv4
+                    );
+                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -648,6 +676,44 @@ pub async fn create_pdu_session(
 
     let n1_sm_msg_simple = n1_sm_info_to_ue.as_ref().map(|info| info.content_id.clone());
 
+    let (upf_tunnel_info_data, qos_flow_list_data, session_ambr_dl_data, session_ambr_ul_data) =
+        if let (Some(teid), Some(addr)) = (upf_teid, upf_addr) {
+            let session_ambr_dl = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| ambr.downlink.parse::<u64>().ok())
+                .unwrap_or(100_000_000);
+
+            let session_ambr_ul = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| ambr.uplink.parse::<u64>().ok())
+                .unwrap_or(50_000_000);
+
+            let qos_flows: Vec<crate::models::QosFlowInfo> = sm_context.qos_flows.iter()
+                .map(|flow| crate::models::QosFlowInfo { qfi: flow.qfi })
+                .collect();
+
+            tracing::info!(
+                "Providing structured session data for SUPI: {}, TEID: {}, UPF IP: {}, QoS Flows: {}, AMBR DL/UL: {}/{}",
+                payload.supi,
+                teid,
+                addr,
+                qos_flows.len(),
+                session_ambr_dl,
+                session_ambr_ul
+            );
+
+            (
+                Some(crate::models::UpfTunnelInfo {
+                    teid,
+                    ipv4_address: addr.to_string(),
+                }),
+                Some(qos_flows),
+                Some(session_ambr_dl),
+                Some(session_ambr_ul),
+            )
+        } else {
+            tracing::warn!("UPF F-TEID not available, structured session data will be None");
+            (None, None, None, None)
+        };
+
     let response = PduSessionCreatedData {
         pdu_session_type: sm_context.pdu_session_type.clone(),
         ssc_mode: sm_context.ssc_mode.as_str().to_string(),
@@ -669,9 +735,13 @@ pub async fn create_pdu_session(
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         dnai_list: None,
-        n2_sm_info: Some("placeholder".to_string()),
+        n2_sm_info: None,
         n2_sm_info_type: Some(crate::models::N2SmInfoType::PduResSetupReq),
         sm_context_ref: sm_context.id.clone(),
+        upf_tunnel_info: upf_tunnel_info_data,
+        qos_flow_list: qos_flow_list_data,
+        session_ambr_downlink: session_ambr_dl_data,
+        session_ambr_uplink: session_ambr_ul_data,
     };
 
     tracing::info!(
