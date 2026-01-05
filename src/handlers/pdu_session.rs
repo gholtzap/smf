@@ -654,6 +654,12 @@ pub async fn create_pdu_session(
             confidentiality_required,
         );
 
+        tracing::info!(
+            "N1 SM message hex ({} bytes): {}",
+            nas_accept_msg.len(),
+            nas_accept_msg.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        );
+
         let encoded = general_purpose::STANDARD.encode(&nas_accept_msg);
 
         tracing::info!(

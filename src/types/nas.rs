@@ -282,15 +282,42 @@ impl NasParser {
 
         message.push(selected_pdu_session_type | (selected_ssc_mode << 4));
 
-        let up_security_policy_byte =
-            ((integrity_protection_required as u8) << 1) |
-            (confidentiality_protection_required as u8);
+        let qos_rules = Self::encode_default_qos_rule(9);
+        message.extend_from_slice(&[
+            ((qos_rules.len() >> 8) & 0xFF) as u8,
+            (qos_rules.len() & 0xFF) as u8,
+        ]);
+        message.extend_from_slice(&qos_rules);
 
-        message.push(InformationElementType::UeSecurityCapability as u8);
-        message.push(1);
-        message.push(up_security_policy_byte);
+        message.push(6);
+        message.push(0x01);
+        message.push(0x00);
+        message.push(0xC8);
+        message.push(0x01);
+        message.push(0x00);
+        message.push(0x64);
 
         message
+    }
+
+    fn encode_default_qos_rule(qfi: u8) -> Vec<u8> {
+        tracing::debug!("UPDATED CODE: Encoding QoS rule with QFI {} using fixed implementation", qfi);
+        let mut rule = Vec::new();
+
+        rule.push(1);
+
+        let rule_content_len = 3u16;
+        rule.push(((rule_content_len >> 8) & 0xFF) as u8);
+        rule.push((rule_content_len & 0xFF) as u8);
+
+        rule.push(0x20);
+
+        rule.push(255);
+
+        rule.push(qfi);
+
+        tracing::debug!("UPDATED CODE: Generated QoS rule with {} bytes: {:?}", rule.len(), rule);
+        rule
     }
 }
 
