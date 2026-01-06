@@ -272,6 +272,8 @@ impl NasParser {
         selected_ssc_mode: u8,
         integrity_protection_required: bool,
         confidentiality_protection_required: bool,
+        ipv4_address: Option<&str>,
+        ipv6_address: Option<&str>,
     ) -> Vec<u8> {
         let mut message = Vec::new();
 
@@ -296,6 +298,22 @@ impl NasParser {
         message.push(0x01);
         message.push(0x00);
         message.push(0x64);
+
+        if let Some(ipv4) = ipv4_address {
+            if let Ok(addr) = ipv4.parse::<std::net::Ipv4Addr>() {
+                message.push(0x29);
+                message.push(5);
+                message.push(1);
+                message.extend_from_slice(&addr.octets());
+            }
+        } else if let Some(ipv6) = ipv6_address {
+            if let Ok(addr) = ipv6.parse::<std::net::Ipv6Addr>() {
+                message.push(0x29);
+                message.push(17);
+                message.push(2);
+                message.extend_from_slice(&addr.octets());
+            }
+        }
 
         message
     }

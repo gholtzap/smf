@@ -645,6 +645,11 @@ pub async fn create_pdu_session(
         let integrity_required = up_sec_ctx.integrity_protection_activated;
         let confidentiality_required = up_sec_ctx.confidentiality_protection_activated;
 
+        let ipv4_addr = sm_context.pdu_address.as_ref()
+            .and_then(|addr| addr.ipv4_addr.as_deref());
+        let ipv6_addr = sm_context.pdu_address.as_ref()
+            .and_then(|addr| addr.ipv6_addr.as_deref());
+
         let nas_accept_msg = NasParser::build_pdu_session_establishment_accept(
             payload.pdu_session_id,
             1,
@@ -652,6 +657,8 @@ pub async fn create_pdu_session(
             ssc_mode_value,
             integrity_required,
             confidentiality_required,
+            ipv4_addr,
+            ipv6_addr,
         );
 
         tracing::info!(
