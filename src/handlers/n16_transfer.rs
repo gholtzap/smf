@@ -6,6 +6,7 @@ use axum::{
 };
 use crate::db::AppState;
 use crate::services::context_transfer_target::ContextTransferTarget;
+use crate::types::AppError;
 use crate::types::sm_context_transfer::{
     SmContextTransferRequest, SmContextTransferResponse,
 };
@@ -95,22 +96,4 @@ pub async fn receive_transfer_cancellation(
     );
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub enum AppError {
-    ValidationError(String),
-    InternalError(String),
-    NotFound(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-
-        (status, message).into_response()
-    }
 }

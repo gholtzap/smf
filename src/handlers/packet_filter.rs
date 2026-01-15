@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use crate::db::AppState;
-use crate::types::{PacketFilter, SdfTemplate};
+use crate::types::{AppError, PacketFilter, SdfTemplate};
 use crate::services::packet_filter::PacketFilterManager;
 use std::sync::Arc;
 
@@ -188,23 +188,4 @@ pub async fn get_packet_filters(
     );
 
     Ok(Json(PacketFiltersResponse { packet_filters }))
-}
-
-#[derive(Debug)]
-pub enum AppError {
-    DatabaseError(String),
-    ValidationError(String),
-    NotFound(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, error_message) = match self {
-            AppError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-
-        (status, error_message).into_response()
-    }
 }

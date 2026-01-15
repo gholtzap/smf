@@ -1,3 +1,4 @@
+pub mod error;
 pub mod event_exposure;
 pub mod pfcp;
 pub mod ipam;
@@ -35,6 +36,7 @@ pub mod ocsp;
 
 use serde::{Deserialize, Serialize};
 
+pub use error::*;
 pub use event_exposure::*;
 pub use pfcp::*;
 pub use ipam::*;

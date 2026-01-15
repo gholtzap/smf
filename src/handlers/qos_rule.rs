@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use crate::db::AppState;
-use crate::types::QosRule;
+use crate::types::{AppError, QosRule};
 use crate::services::qos_rule::QosRuleManager;
 use std::sync::Arc;
 
@@ -131,23 +131,4 @@ pub async fn apply_qos_rules(
     );
 
     Ok(StatusCode::OK)
-}
-
-#[derive(Debug)]
-pub enum AppError {
-    DatabaseError(String),
-    ValidationError(String),
-    NotFound(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, error_message) = match self {
-            AppError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-
-        (status, error_message).into_response()
-    }
 }

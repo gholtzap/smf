@@ -8,7 +8,7 @@ use mongodb::{Collection, bson::doc};
 use uuid::Uuid;
 use chrono::Utc;
 use crate::db::AppState;
-use crate::types::{EventSubscription, EventSubscriptionCreatedData, StoredEventSubscription};
+use crate::types::{AppError, EventSubscription, EventSubscriptionCreatedData, StoredEventSubscription};
 
 pub async fn create_event_subscription(
     State(state): State<AppState>,
@@ -124,23 +124,4 @@ pub async fn delete_event_subscription(
     tracing::info!("Deleted event subscription: {}", subscription_id);
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Debug)]
-pub enum AppError {
-    DatabaseError(String),
-    ValidationError(String),
-    NotFound(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-
-        (status, message).into_response()
-    }
 }

@@ -6,6 +6,7 @@ use axum::{
 };
 use crate::db::AppState;
 use crate::services::amf_smf_coordination::AmfSmfCoordinationService;
+use crate::types::AppError;
 use crate::types::amf_smf_coordination::{
     SmContextRetrieveRequest, SmContextRetrieveResponse,
     SmContextReleaseNotification, SmContextReleaseResponse,
@@ -111,23 +112,5 @@ pub async fn release_sm_context_on_transfer(
                 e
             )))
         }
-    }
-}
-
-pub enum AppError {
-    ValidationError(String),
-    InternalError(String),
-    NotFound(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-        };
-
-        (status, message).into_response()
     }
 }

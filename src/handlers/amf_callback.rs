@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use crate::db::AppState;
-use crate::types::{N1N2MessageTransferStatusNotification, N2InfoNotification, N2SmInfoType};
+use crate::types::{AppError, N1N2MessageTransferStatusNotification, N2InfoNotification, N2SmInfoType};
 
 pub async fn handle_n1n2_transfer_status(
     State(_state): State<AppState>,
@@ -167,29 +167,4 @@ pub async fn handle_n2_info_notify(
     }
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Debug)]
-pub enum AppError {
-    InternalError(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, error_message) = match self {
-            AppError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-        };
-
-        let body = Json(serde_json::json!({
-            "error": error_message
-        }));
-
-        (status, body).into_response()
-    }
-}
-
-impl From<anyhow::Error> for AppError {
-    fn from(err: anyhow::Error) -> Self {
-        AppError::InternalError(err.to_string())
-    }
 }
