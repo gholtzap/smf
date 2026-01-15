@@ -9,7 +9,10 @@ pub struct NotificationService {
 impl NotificationService {
     pub fn new() -> Self {
         Self {
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 

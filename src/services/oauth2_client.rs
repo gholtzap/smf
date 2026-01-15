@@ -21,7 +21,10 @@ impl OAuth2TokenClient {
         nf_type: Option<String>,
     ) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             token_endpoint,
             nf_instance_id,
             nf_type,

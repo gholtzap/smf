@@ -957,7 +957,8 @@ async fn handle_path_switch(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
             }
@@ -1017,8 +1018,10 @@ async fn handle_path_switch(
 
     let mut update_doc = doc! {
         "$set": {
-            "state": mongodb::bson::to_bson(&new_state).unwrap(),
-            "an_tunnel_info": mongodb::bson::to_bson(&an_tunnel_info).unwrap(),
+            "state": mongodb::bson::to_bson(&new_state)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+            "an_tunnel_info": mongodb::bson::to_bson(&an_tunnel_info)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             "updated_at": mongodb::bson::DateTime::now()
         }
     };
@@ -1048,10 +1051,13 @@ async fn handle_path_switch(
             new_pdu_address.ipv6_addr
         );
 
-        update_doc.get_document_mut("$set").unwrap().insert(
-            "pdu_address",
-            mongodb::bson::to_bson(&new_pdu_address).unwrap()
-        );
+        update_doc.get_document_mut("$set")
+            .map_err(|e| AppError::DatabaseError(format!("Failed to access $set document: {}", e)))?
+            .insert(
+                "pdu_address",
+                mongodb::bson::to_bson(&new_pdu_address)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?
+            );
     } else if sm_context.ssc_mode == SscMode::Mode3 {
         tracing::info!(
             "SSC Mode 3 path switch: Make-before-break for SUPI: {}, PDU Session ID: {}",
@@ -1077,17 +1083,23 @@ async fn handle_path_switch(
             new_pdu_address.ipv6_addr
         );
 
-        update_doc.get_document_mut("$set").unwrap().insert(
-            "pdu_address",
-            mongodb::bson::to_bson(&new_pdu_address).unwrap()
-        );
+        update_doc.get_document_mut("$set")
+            .map_err(|e| AppError::DatabaseError(format!("Failed to access $set document: {}", e)))?
+            .insert(
+                "pdu_address",
+                mongodb::bson::to_bson(&new_pdu_address)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?
+            );
     }
 
     if let Some(ref ue_location) = payload.ue_location {
-        update_doc.get_document_mut("$set").unwrap().insert(
-            "ue_location",
-            mongodb::bson::to_bson(&ue_location).unwrap()
-        );
+        update_doc.get_document_mut("$set")
+            .map_err(|e| AppError::DatabaseError(format!("Failed to access $set document: {}", e)))?
+            .insert(
+                "ue_location",
+                mongodb::bson::to_bson(&ue_location)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?
+            );
         tracing::info!(
             "Updated UE location for SUPI: {} during handover",
             sm_context.supi
@@ -1095,10 +1107,13 @@ async fn handle_path_switch(
     }
 
     if let Some(ref ambr) = effective_ambr {
-        update_doc.get_document_mut("$set").unwrap().insert(
-            "session_ambr",
-            mongodb::bson::to_bson(&ambr).unwrap()
-        );
+        update_doc.get_document_mut("$set")
+            .map_err(|e| AppError::DatabaseError(format!("Failed to access $set document: {}", e)))?
+            .insert(
+                "session_ambr",
+                mongodb::bson::to_bson(&ambr)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?
+            );
         tracing::info!(
             "Updated session AMBR for SUPI: {} during path switch: UL={}, DL={}",
             sm_context.supi,
@@ -1166,7 +1181,8 @@ pub async fn update_pdu_session(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
             }
@@ -1244,7 +1260,8 @@ pub async fn update_pdu_session(
 
     let update_doc = doc! {
         "$set": {
-            "state": mongodb::bson::to_bson(&new_state).unwrap(),
+            "state": mongodb::bson::to_bson(&new_state)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             "updated_at": mongodb::bson::DateTime::now()
         }
     };
@@ -1302,7 +1319,8 @@ pub async fn release_pdu_session(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::InactivePending).unwrap(),
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::InactivePending)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
             }
@@ -1571,8 +1589,10 @@ pub async fn handle_handover_required(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending).unwrap(),
-                    "handover_state": mongodb::bson::to_bson(&HoState::Preparing).unwrap(),
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "handover_state": mongodb::bson::to_bson(&HoState::Preparing)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
             }
@@ -1650,7 +1670,8 @@ pub async fn handle_handover_request_ack(
     }
 
     let mut update_doc = doc! {
-        "handover_state": mongodb::bson::to_bson(&HoState::Prepared).unwrap(),
+        "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
 
@@ -1691,13 +1712,15 @@ pub async fn handle_handover_request_ack(
 
                 update_doc.insert(
                     "an_tunnel_info",
-                    mongodb::bson::to_bson(&resources.target_tunnel_info).unwrap(),
+                    mongodb::bson::to_bson(&resources.target_tunnel_info)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                 );
 
                 if !mapping_result.allocated_flows.is_empty() {
                     update_doc.insert(
                         "qos_flows",
-                        mongodb::bson::to_bson(&mapping_result.allocated_flows).unwrap(),
+                        mongodb::bson::to_bson(&mapping_result.allocated_flows)
+                            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     );
                     tracing::info!(
                         "Updated QoS flows for SUPI: {} to reflect allocated resources: {:?}",
@@ -1796,7 +1819,8 @@ pub async fn handle_handover_notify(
     }
 
     let mut update_doc = doc! {
-        "handover_state": mongodb::bson::to_bson(&payload.ho_state).unwrap(),
+        "handover_state": mongodb::bson::to_bson(&payload.ho_state)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
 
@@ -1959,7 +1983,8 @@ pub async fn handle_handover_notify(
 
             update_doc.insert(
                 "pdu_address",
-                mongodb::bson::to_bson(&new_pdu_address).unwrap(),
+                mongodb::bson::to_bson(&new_pdu_address)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             );
         } else if sm_context.ssc_mode == SscMode::Mode3 {
             tracing::info!(
@@ -1988,19 +2013,22 @@ pub async fn handle_handover_notify(
 
             update_doc.insert(
                 "pdu_address",
-                mongodb::bson::to_bson(&new_pdu_address).unwrap(),
+                mongodb::bson::to_bson(&new_pdu_address)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             );
         }
 
         update_doc.insert(
             "state",
-            mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
+            mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
 
         if let Some(ref an_tunnel_info) = payload.an_tunnel_info {
             update_doc.insert(
                 "an_tunnel_info",
-                mongodb::bson::to_bson(an_tunnel_info).unwrap(),
+                mongodb::bson::to_bson(an_tunnel_info)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             );
 
             if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
@@ -2031,7 +2059,8 @@ pub async fn handle_handover_notify(
         if let Some(ref ue_location) = payload.ue_location {
             update_doc.insert(
                 "ue_location",
-                mongodb::bson::to_bson(ue_location).unwrap(),
+                mongodb::bson::to_bson(ue_location)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             );
         }
 
@@ -2078,7 +2107,8 @@ pub async fn handle_handover_notify(
     } else if matches!(payload.ho_state, HoState::Cancelled) {
         update_doc.insert(
             "state",
-            mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
+            mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
 
         tracing::info!(
@@ -2146,8 +2176,10 @@ pub async fn handle_handover_cancel(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::Active).unwrap(),
-                    "handover_state": mongodb::bson::to_bson(&HoState::Cancelled).unwrap(),
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "handover_state": mongodb::bson::to_bson(&HoState::Cancelled)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
             }

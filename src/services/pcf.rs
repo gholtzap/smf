@@ -16,7 +16,10 @@ pub struct PcfClient {
 impl PcfClient {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             oauth2_client: None,
         }
     }

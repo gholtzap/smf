@@ -67,19 +67,21 @@ impl IpamService {
                     let ip = Self::offset_to_ip(network, offset);
                     let ip_str = ip.to_string();
 
-                    if !pool.allocated_ips.contains(&ip_str) {
+                    let result = pools_collection
+                        .find_one_and_update(
+                            doc! {
+                                "_id": &pool.id,
+                                "allocated_ips": { "$ne": &ip_str }
+                            },
+                            doc! {
+                                "$push": { "allocated_ips": &ip_str },
+                                "$set": { "updated_at": mongodb::bson::DateTime::now() }
+                            },
+                        )
+                        .await?;
+
+                    if result.is_some() {
                         ipv4_addr = Some(ip_str.clone());
-
-                        pools_collection
-                            .update_one(
-                                doc! { "_id": &pool.id },
-                                doc! {
-                                    "$push": { "allocated_ips": &ip_str },
-                                    "$set": { "updated_at": mongodb::bson::DateTime::now() }
-                                },
-                            )
-                            .await?;
-
                         tracing::info!(
                             "Allocated IPv4 {} from pool '{}' to SUPI: {}",
                             ip_str,
@@ -108,19 +110,21 @@ impl IpamService {
                         let subnet = Self::offset_to_ipv6_subnet(network, offset, subnet_prefix_len);
                         let subnet_str = format!("{}/{}", subnet, subnet_prefix_len);
 
-                        if !pool.allocated_ipv6_prefixes.contains(&subnet_str) {
+                        let result = pools_collection
+                            .find_one_and_update(
+                                doc! {
+                                    "_id": &pool.id,
+                                    "allocated_ipv6_prefixes": { "$ne": &subnet_str }
+                                },
+                                doc! {
+                                    "$push": { "allocated_ipv6_prefixes": &subnet_str },
+                                    "$set": { "updated_at": mongodb::bson::DateTime::now() }
+                                },
+                            )
+                            .await?;
+
+                        if result.is_some() {
                             ipv6_prefix = Some(subnet_str.clone());
-
-                            pools_collection
-                                .update_one(
-                                    doc! { "_id": &pool.id },
-                                    doc! {
-                                        "$push": { "allocated_ipv6_prefixes": &subnet_str },
-                                        "$set": { "updated_at": mongodb::bson::DateTime::now() }
-                                    },
-                                )
-                                .await?;
-
                             tracing::info!(
                                 "Allocated IPv6 prefix {} from pool '{}' to SUPI: {}",
                                 subnet_str,

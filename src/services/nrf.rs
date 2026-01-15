@@ -37,7 +37,10 @@ pub struct NrfClient {
 impl NrfClient {
     pub fn new(nrf_uri: String, nf_instance_id: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             nrf_uri,
             nf_instance_id,
             profile: Arc::new(RwLock::new(None)),

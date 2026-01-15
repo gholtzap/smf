@@ -17,7 +17,7 @@ impl CrlService {
         let mut fetch_attempt = CrlFetchAttempt::new(distribution_point_url.clone());
 
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(60))
             .build()?;
 
         let response = match client.get(&distribution_point_url).send().await {

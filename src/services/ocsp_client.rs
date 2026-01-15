@@ -22,7 +22,7 @@ pub struct OcspClient {
 impl OcspClient {
     pub fn new(db: Database) -> Self {
         let http_client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| Client::new());
 
