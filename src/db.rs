@@ -223,9 +223,15 @@ pub async fn init(config: &Config) -> anyhow::Result<AppState> {
 }
 
 async fn cleanup_stale_sessions(db: &Database) -> anyhow::Result<()> {
+    use chrono::{Utc, Duration};
+
+    let stale_threshold = Utc::now() - Duration::seconds(30);
+
     let sm_contexts_collection = db.collection::<SmContext>("sm_contexts");
 
-    let result = sm_contexts_collection.delete_many(doc! {}).await?;
+    let result = sm_contexts_collection.delete_many(doc! {
+        "created_at": { "$lt": stale_threshold }
+    }).await?;
 
     if result.deleted_count > 0 {
         tracing::info!(
@@ -237,7 +243,9 @@ async fn cleanup_stale_sessions(db: &Database) -> anyhow::Result<()> {
     }
 
     let ip_allocations_collection = db.collection::<mongodb::bson::Document>("ip_allocations");
-    let ip_result = ip_allocations_collection.delete_many(doc! {}).await?;
+    let ip_result = ip_allocations_collection.delete_many(doc! {
+        "allocated_at": { "$lt": stale_threshold }
+    }).await?;
 
     if ip_result.deleted_count > 0 {
         tracing::info!(
