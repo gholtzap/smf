@@ -5,7 +5,11 @@ use axum::{
     response::Response,
 };
 use base64::{Engine as _, engine::general_purpose};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use crate::types::oauth2::{TokenClaims, ValidatedToken};
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Clone)]
 pub struct OAuth2Config {
@@ -13,6 +17,7 @@ pub struct OAuth2Config {
     pub issuer: String,
     pub audience: Vec<String>,
     pub required_scope: Option<String>,
+    pub secret_key: String,
 }
 
 impl Default for OAuth2Config {
@@ -22,6 +27,7 @@ impl Default for OAuth2Config {
             issuer: String::new(),
             audience: Vec::new(),
             required_scope: None,
+            secret_key: String::new(),
         }
     }
 }
@@ -57,7 +63,28 @@ fn validate_token(token: &str, config: &OAuth2Config) -> Result<ValidatedToken, 
         return Err(StatusCode::UNAUTHORIZED);
     }
 
+    let header = parts[0];
     let payload = parts[1];
+    let signature = parts[2];
+
+    if config.secret_key.is_empty() {
+        tracing::error!("JWT secret key is not configured");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let message = format!("{}.{}", header, payload);
+    let mut mac = HmacSha256::new_from_slice(config.secret_key.as_bytes())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    mac.update(message.as_bytes());
+
+    let expected_signature = general_purpose::URL_SAFE_NO_PAD.decode(signature)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    mac.verify_slice(&expected_signature)
+        .map_err(|_| {
+            tracing::warn!("JWT signature verification failed");
+            StatusCode::UNAUTHORIZED
+        })?;
 
     let decoded = general_purpose::URL_SAFE_NO_PAD
         .decode(payload)

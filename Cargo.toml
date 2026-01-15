@@ -32,5 +32,6 @@ rasn = { version = "0.20", features = ["macros"] }
 rasn-pkix = "0.20"
 x509-cert = { version = "0.2", features = ["pem"] }
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
 async-trait = "0.1"

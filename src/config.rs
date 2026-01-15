@@ -84,11 +84,15 @@ impl Config {
 
         let oauth2_required_scope = env::var("OAUTH2_REQUIRED_SCOPE").ok();
 
+        let jwt_secret = env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "".to_string());
+
         let oauth2 = OAuth2Config {
             enabled: oauth2_enabled,
             issuer: oauth2_issuer,
             audience: oauth2_audience,
             required_scope: oauth2_required_scope,
+            secret_key: jwt_secret,
         };
 
         let tls_enabled = env::var("TLS_ENABLED")
