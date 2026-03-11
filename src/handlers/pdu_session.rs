@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     Json,
 };
@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType};
 use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 pub async fn create_pdu_session(
     State(state): State<AppState>,
     Json(payload): Json<PduSessionCreateData>,
-) -> Result<Json<PduSessionCreatedData>, AppError> {
+) -> Result<Response, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     EmergencyService::validate_emergency_request(
@@ -156,11 +156,37 @@ pub async fn create_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    if existing.is_some() {
-        return Err(AppError::ValidationError(format!(
-            "PDU Session already exists for SUPI {} with PDU Session ID {}",
-            payload.supi, payload.pdu_session_id
-        )));
+    let is_existing_request = matches!(
+        payload.request_type,
+        Some(RequestType::ExistingPduSession) | Some(RequestType::ExistingEmergencyPduSession)
+    );
+
+    if let Some(ref existing_ctx) = existing {
+        if is_existing_request {
+            tracing::info!(
+                "ExistingPduSession request for SUPI: {}, PDU Session ID: {} - releasing old session before re-establishment",
+                payload.supi,
+                payload.pdu_session_id
+            );
+
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, existing_ctx.pfcp_session_id) {
+                if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+                    tracing::warn!("Failed to delete old PFCP session {}: {}", seid, e);
+                }
+            }
+
+            IpamService::release_ip(&state.db, &existing_ctx.id).await.ok();
+
+            collection
+                .delete_one(doc! { "_id": &existing_ctx.id })
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        } else {
+            return Err(AppError::ValidationError(format!(
+                "PDU Session already exists for SUPI {} with PDU Session ID {}",
+                payload.supi, payload.pdu_session_id
+            )));
+        }
     }
 
     let mut sm_context = SmContext::new(&payload);
@@ -623,69 +649,74 @@ pub async fn create_pdu_session(
         tracing::debug!("PFCP client not available, skipping PFCP session establishment, State: Active");
     }
 
-    collection
-        .insert_one(&sm_context)
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    if let Err(e) = collection.insert_one(&sm_context).await {
+        tracing::error!("DB insert failed for SUPI: {}, cleaning up allocated resources", payload.supi);
+        IpamService::release_ip(&state.db, &sm_context.id).await.ok();
+        if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+            PfcpSessionManager::delete_session(pfcp_client, seid).await.ok();
+        }
+        return Err(AppError::DatabaseError(e.to_string()));
+    }
 
-    let n1_sm_info_to_ue = if let Some(ref up_sec_ctx) = sm_context.up_security_context {
-        let pdu_session_type_value = match sm_context.pdu_session_type {
-            PduSessionType::Ipv4 => 1,
-            PduSessionType::Ipv6 => 2,
-            PduSessionType::Ipv4v6 => 3,
-            _ => 1,
-        };
-
-        let ssc_mode_value = match sm_context.ssc_mode {
-            SscMode::Mode1 => 1,
-            SscMode::Mode2 => 2,
-            SscMode::Mode3 => 3,
-        };
-
-        let integrity_required = up_sec_ctx.integrity_protection_activated;
-        let confidentiality_required = up_sec_ctx.confidentiality_protection_activated;
-
-        let ipv4_addr = sm_context.pdu_address.as_ref()
-            .and_then(|addr| addr.ipv4_addr.as_deref());
-        let ipv6_addr = sm_context.pdu_address.as_ref()
-            .and_then(|addr| addr.ipv6_addr.as_deref());
-
-        let nas_accept_msg = NasParser::build_pdu_session_establishment_accept(
-            payload.pdu_session_id,
-            1,
-            pdu_session_type_value,
-            ssc_mode_value,
-            integrity_required,
-            confidentiality_required,
-            ipv4_addr,
-            ipv6_addr,
-        );
-
-        tracing::info!(
-            "N1 SM message hex ({} bytes): {}",
-            nas_accept_msg.len(),
-            nas_accept_msg.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-        );
-
-        let encoded = general_purpose::STANDARD.encode(&nas_accept_msg);
-
-        tracing::info!(
-            "Built N1 PDU Session Establishment Accept for SUPI: {} with UP security policy - Integrity: {}, Confidentiality: {}",
-            payload.supi,
-            integrity_required,
-            confidentiality_required
-        );
-
-        Some(crate::types::RefToBinaryData {
-            content_id: encoded.clone(),
-        })
-    } else {
-        tracing::debug!(
-            "No UP security context available for SUPI: {}, N1 response will not include UP security policy",
-            payload.supi
-        );
-        None
+    let pdu_session_type_value = match sm_context.pdu_session_type {
+        PduSessionType::Ipv4 => 1,
+        PduSessionType::Ipv6 => 2,
+        PduSessionType::Ipv4v6 => 3,
+        _ => 1,
     };
+
+    let ssc_mode_value = match sm_context.ssc_mode {
+        SscMode::Mode1 => 1,
+        SscMode::Mode2 => 2,
+        SscMode::Mode3 => 3,
+    };
+
+    let (integrity_required, confidentiality_required) = sm_context.up_security_context
+        .as_ref()
+        .map(|ctx| (ctx.integrity_protection_activated, ctx.confidentiality_protection_activated))
+        .unwrap_or((false, false));
+
+    let n1_ipv4 = sm_context.pdu_address.as_ref()
+        .and_then(|addr| addr.ipv4_addr.as_deref());
+    let n1_ipv6 = sm_context.pdu_address.as_ref()
+        .and_then(|addr| addr.ipv6_addr.as_deref());
+
+    let ambr_dl_kbps = sm_context.session_ambr.as_ref()
+        .and_then(|ambr| crate::services::ambr_enforcement::AmbrEnforcementService::parse_ambr_bitrate(&ambr.downlink).ok())
+        .map(|bps| bps / 1000)
+        .unwrap_or(100_000);
+    let ambr_ul_kbps = sm_context.session_ambr.as_ref()
+        .and_then(|ambr| crate::services::ambr_enforcement::AmbrEnforcementService::parse_ambr_bitrate(&ambr.uplink).ok())
+        .map(|bps| bps / 1000)
+        .unwrap_or(50_000);
+
+    let default_qfi = sm_context.qos_flows.first().map(|f| f.qfi).unwrap_or(1);
+
+    let nas_accept_msg = NasParser::build_pdu_session_establishment_accept(
+        payload.pdu_session_id,
+        1,
+        pdu_session_type_value,
+        ssc_mode_value,
+        integrity_required,
+        confidentiality_required,
+        n1_ipv4,
+        n1_ipv6,
+        ambr_dl_kbps,
+        ambr_ul_kbps,
+        default_qfi,
+    );
+
+    tracing::info!(
+        "N1 SM message hex ({} bytes): {}",
+        nas_accept_msg.len(),
+        nas_accept_msg.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    );
+
+    let encoded = general_purpose::STANDARD.encode(&nas_accept_msg);
+
+    let n1_sm_info_to_ue = Some(crate::types::RefToBinaryData {
+        content_id: encoded.clone(),
+    });
 
     let n1_sm_msg_simple = n1_sm_info_to_ue.as_ref().map(|info| info.content_id.clone());
 
@@ -781,7 +812,12 @@ pub async fn create_pdu_session(
         None,
     ).await;
 
-    Ok(Json(response))
+    let location = format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id);
+    Ok((
+        StatusCode::CREATED,
+        [(header::LOCATION, location)],
+        Json(response),
+    ).into_response())
 }
 
 pub async fn retrieve_pdu_session(
@@ -804,6 +840,85 @@ pub async fn retrieve_pdu_session(
     );
 
     Ok(Json(sm_context))
+}
+
+async fn handle_n2_setup_response(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let n2_sm_info = payload.n2_sm_info.as_ref()
+        .ok_or_else(|| AppError::ValidationError("N2 SM Info required for PDU Resource Setup Response".to_string()))?;
+
+    let an_tunnel_info = HandoverService::extract_an_tunnel_info(&n2_sm_info.n2_info_content.ngap_data)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "N2 Setup Response - extracted gNB tunnel: TEID={}, IP={:?} for SUPI: {}, PDU Session ID: {}",
+        an_tunnel_info.gtp_teid,
+        an_tunnel_info.ipv4_addr,
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        let an_ipv4_str = an_tunnel_info.ipv4_addr.as_ref()
+            .ok_or_else(|| AppError::ValidationError("gNB IPv4 address required".to_string()))?;
+        let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid gNB IPv4 address: {}", e))
+        })?;
+
+        PfcpSessionManager::modify_session_for_handover(
+            pfcp_client,
+            seid,
+            an_ipv4,
+            &an_tunnel_info.gtp_teid,
+            sm_context.up_security_context.as_ref(),
+        ).await.map_err(|e| {
+            AppError::ValidationError(format!("Failed to activate DL FAR: {}", e))
+        })?;
+
+        tracing::info!(
+            "DL FAR activated for SUPI: {}, SEID: {}, gNB: {}:{}",
+            sm_context.supi,
+            seid,
+            an_ipv4,
+            an_tunnel_info.gtp_teid
+        );
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! {
+                "$set": {
+                    "an_tunnel_info": mongodb::bson::to_bson(&an_tunnel_info)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "updated_at": mongodb::bson::DateTime::now()
+                }
+            }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+    }))
 }
 
 async fn handle_path_switch(
@@ -1174,6 +1289,10 @@ pub async fn update_pdu_session(
         return handle_path_switch(state, sm_context_ref, sm_context, payload).await;
     }
 
+    if matches!(payload.n2_sm_info_type, Some(crate::models::N2SmInfoType::PduResSetupRsp)) {
+        return handle_n2_setup_response(state, sm_context_ref, sm_context, payload).await;
+    }
+
     let mut new_state = crate::types::SmContextState::Active;
 
     collection
@@ -1253,10 +1372,7 @@ pub async fn update_pdu_session(
         tracing::debug!("PFCP client or session ID not available, skipping PFCP session modification, State: ModificationPending -> Active");
     }
 
-    let updated_ambr = payload.session_ambr.clone().or(Some(Ambr {
-        uplink: "100 Mbps".to_string(),
-        downlink: "100 Mbps".to_string(),
-    }));
+    let updated_ambr = payload.session_ambr.clone().or(sm_context.session_ambr.clone());
 
     let update_doc = doc! {
         "$set": {
@@ -1274,14 +1390,8 @@ pub async fn update_pdu_session(
     let response = PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
-        n2_sm_info: payload.n2_sm_info.or(Some(N2SmInfo {
-            content_id: "n2-sm-info".to_string(),
-            n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::PduResModifyReq,
-                ngap_data: "base64_encoded_ngap_data".to_string(),
-            },
-        })),
-        n2_sm_info_type: payload.n2_sm_info_type.or(Some(crate::models::N2SmInfoType::PduResSetupReq)),
+        n2_sm_info: None,
+        n2_sm_info_type: None,
         eps_bearer_info: None,
         supported_features: None,
         session_ambr: updated_ambr,

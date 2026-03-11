@@ -139,15 +139,27 @@ impl NasParser {
             return Err(format!("Unexpected NAS message type: {:?}", message_type));
         }
 
+        if data.len() < 6 {
+            return Err("NAS message missing mandatory integrity protection max data rate".to_string());
+        }
+
+        let integrity_max_rate_ul = MaxDataRatePerUe::from(data[4]);
+        let integrity_max_rate_dl = MaxDataRatePerUe::from(data[5]);
+        tracing::debug!(
+            "Mandatory integrity protection max data rate: UL={:?}, DL={:?}",
+            integrity_max_rate_ul,
+            integrity_max_rate_dl
+        );
+
         let mut request = NasPduSessionEstablishmentRequest {
-            integrity_protection_max_data_rate: None,
+            integrity_protection_max_data_rate: Some(integrity_max_rate_ul),
             pdu_session_type: None,
             ssc_mode: None,
             ue_security_capabilities: None,
             always_on_pdu_session_requested: None,
         };
 
-        let mut pos = 4;
+        let mut pos = 6;
         while pos < data.len() {
             if pos + 1 > data.len() {
                 break;
@@ -270,10 +282,13 @@ impl NasParser {
         procedure_transaction_id: u8,
         selected_pdu_session_type: u8,
         selected_ssc_mode: u8,
-        integrity_protection_required: bool,
-        confidentiality_protection_required: bool,
+        _integrity_protection_required: bool,
+        _confidentiality_protection_required: bool,
         ipv4_address: Option<&str>,
         ipv6_address: Option<&str>,
+        session_ambr_dl_kbps: u64,
+        session_ambr_ul_kbps: u64,
+        qfi: u8,
     ) -> Vec<u8> {
         let mut message = Vec::new();
 
@@ -284,38 +299,77 @@ impl NasParser {
 
         message.push(selected_pdu_session_type | (selected_ssc_mode << 4));
 
-        let qos_rules = Self::encode_default_qos_rule(9);
+        let qos_rules = Self::encode_default_qos_rule(qfi);
         message.extend_from_slice(&[
             ((qos_rules.len() >> 8) & 0xFF) as u8,
             (qos_rules.len() & 0xFF) as u8,
         ]);
         message.extend_from_slice(&qos_rules);
 
+        let (dl_unit, dl_value) = Self::encode_ambr_value(session_ambr_dl_kbps);
+        let (ul_unit, ul_value) = Self::encode_ambr_value(session_ambr_ul_kbps);
         message.push(6);
-        message.push(0x01);
-        message.push(0x00);
-        message.push(0xC8);
-        message.push(0x01);
-        message.push(0x00);
-        message.push(0x64);
+        message.push(dl_unit);
+        message.push(((dl_value >> 8) & 0xFF) as u8);
+        message.push((dl_value & 0xFF) as u8);
+        message.push(ul_unit);
+        message.push(((ul_value >> 8) & 0xFF) as u8);
+        message.push((ul_value & 0xFF) as u8);
 
-        if let Some(ipv4) = ipv4_address {
-            if let Ok(addr) = ipv4.parse::<std::net::Ipv4Addr>() {
-                message.push(0x29);
-                message.push(5);
-                message.push(1);
-                message.extend_from_slice(&addr.octets());
+        match (ipv4_address, ipv6_address) {
+            (Some(ipv4), Some(ipv6)) => {
+                let ipv4_ok = ipv4.parse::<std::net::Ipv4Addr>().ok();
+                let ipv6_ok = ipv6.split('/').next()
+                    .and_then(|s| s.parse::<std::net::Ipv6Addr>().ok());
+                if let (Some(v4), Some(v6)) = (ipv4_ok, ipv6_ok) {
+                    let octets = v6.octets();
+                    message.push(0x29);
+                    message.push(13);
+                    message.push(3);
+                    message.extend_from_slice(&octets[8..16]);
+                    message.extend_from_slice(&v4.octets());
+                }
             }
-        } else if let Some(ipv6) = ipv6_address {
-            if let Ok(addr) = ipv6.parse::<std::net::Ipv6Addr>() {
-                message.push(0x29);
-                message.push(17);
-                message.push(2);
-                message.extend_from_slice(&addr.octets());
+            (Some(ipv4), None) => {
+                if let Ok(addr) = ipv4.parse::<std::net::Ipv4Addr>() {
+                    message.push(0x29);
+                    message.push(5);
+                    message.push(1);
+                    message.extend_from_slice(&addr.octets());
+                }
             }
+            (None, Some(ipv6)) => {
+                let ipv6_str = ipv6.split('/').next().unwrap_or(ipv6);
+                if let Ok(addr) = ipv6_str.parse::<std::net::Ipv6Addr>() {
+                    let octets = addr.octets();
+                    message.push(0x29);
+                    message.push(9);
+                    message.push(2);
+                    message.extend_from_slice(&octets[8..16]);
+                }
+            }
+            (None, None) => {}
         }
 
         message
+    }
+
+    fn encode_ambr_value(kbps: u64) -> (u8, u16) {
+        if kbps == 0 {
+            return (0x01, 0);
+        }
+        if kbps <= 65535 {
+            return (0x01, kbps as u16);
+        }
+        let mbps = kbps / 1000;
+        if mbps <= 65535 {
+            return (0x06, mbps as u16);
+        }
+        let gbps = kbps / 1_000_000;
+        if gbps <= 65535 {
+            return (0x0B, gbps as u16);
+        }
+        (0x0B, 65535)
     }
 
     fn encode_default_qos_rule(qfi: u8) -> Vec<u8> {
@@ -328,7 +382,7 @@ impl NasParser {
         rule.push(((rule_content_len >> 8) & 0xFF) as u8);
         rule.push((rule_content_len & 0xFF) as u8);
 
-        rule.push(0x20);
+        rule.push(0x30);
 
         rule.push(255);
 

@@ -191,6 +191,8 @@ impl ContextTransferTarget {
             ue_security_capabilities: context_data.ue_security_capabilities.clone(),
             session_ambr: context_data.session_ambr.clone(),
             upf_address: context_data.upf_address.clone(),
+            serving_nf_id: None,
+            sm_context_status_uri: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

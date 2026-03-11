@@ -16,6 +16,8 @@ pub struct PduSessionCreateData {
     pub dnn: String,
     pub selected_dnn: Option<String>,
     pub s_nssai: Snssai,
+    #[serde(default)]
+    pub serving_nf_id: Option<String>,
     pub serving_network: Option<String>,
     pub request_type: Option<RequestType>,
     pub eps_bearer_id: Option<Vec<u8>>,
@@ -36,6 +38,8 @@ pub struct PduSessionCreateData {
     pub n1_sm_msg: Option<RefToBinaryData>,
     pub guami: Option<Guami>,
     pub service_name: Option<String>,
+    #[serde(default)]
+    pub sm_context_status_uri: Option<String>,
     pub pcf_id: Option<String>,
     pub pcf_group_id: Option<String>,
     pub pcf_set_id: Option<String>,
@@ -239,6 +243,10 @@ pub struct SmContext {
     pub ue_security_capabilities: Option<UeSecurityCapabilities>,
     pub session_ambr: Option<Ambr>,
     pub upf_address: Option<String>,
+    #[serde(default)]
+    pub serving_nf_id: Option<String>,
+    #[serde(default)]
+    pub sm_context_status_uri: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -276,6 +284,8 @@ impl SmContext {
             ue_security_capabilities: None,
             session_ambr: None,
             upf_address: None,
+            serving_nf_id: create_data.serving_nf_id.clone(),
+            sm_context_status_uri: create_data.sm_context_status_uri.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
