@@ -17,6 +17,24 @@ pub enum PacketFilterDirection {
     Bidirectional,
 }
 
+impl PacketFilterDirection {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Self::Downlink => 1,
+            Self::Uplink => 2,
+            Self::Bidirectional => 3,
+        }
+    }
+
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Downlink,
+            2 => Self::Uplink,
+            _ => Self::Bidirectional,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketFilterComponent {
     ProtocolIdentifier(u8),
