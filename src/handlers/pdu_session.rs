@@ -9,7 +9,8 @@ use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
-use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState, SmContextRetrieveData, SmContextRetrievedData};
+use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState, SmContextRetrieveData, SmContextRetrievedData};
+use crate::models::QosFlowItem;
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
@@ -1582,21 +1583,339 @@ pub async fn update_pdu_session(
         return handle_up_cnx_state_change(state, sm_context_ref, sm_context, up_cnx_state).await;
     }
 
-    let mut new_state = crate::types::SmContextState::Active;
+    if let Some(ref n1_sm_msg) = payload.n1_sm_msg {
+        let n1_data = general_purpose::STANDARD
+            .decode(&n1_sm_msg.content_id)
+            .map_err(|e| AppError::ValidationError(format!("Failed to decode N1 SM message: {}", e)))?;
+
+        if !n1_data.is_empty() {
+            let header = NasParser::parse_sm_header(&n1_data)
+                .map_err(AppError::ValidationError)?;
+
+            match header.message_type {
+                NasMessageType::PduSessionModificationRequest => {
+                    return handle_ue_modification_request(
+                        state, sm_context_ref, sm_context, &n1_data,
+                    ).await;
+                }
+                NasMessageType::PduSessionReleaseRequest => {
+                    return handle_ue_release_request(
+                        state, sm_context_ref, sm_context, &n1_data,
+                    ).await;
+                }
+                NasMessageType::PduSessionModificationComplete => {
+                    tracing::info!(
+                        "UE confirmed PDU Session Modification for SUPI: {}, PSI: {}",
+                        sm_context.supi,
+                        sm_context.pdu_session_id
+                    );
+                    return Ok(Json(PduSessionUpdatedData {
+                        n1_sm_info_to_ue: None,
+                        n1_sm_msg: None,
+                        n2_sm_info: None,
+                        n2_sm_info_type: None,
+                        eps_bearer_info: None,
+                        supported_features: None,
+                        session_ambr: sm_context.session_ambr.clone(),
+                        cn_tunnel_info: None,
+                        additional_cn_tunnel_info: None,
+                        qos_flows_add_mod_list: None,
+                        qos_flows_rel_list: None,
+                        up_cnx_state: None,
+                    }));
+                }
+                NasMessageType::PduSessionModificationCommandReject => {
+                    tracing::warn!(
+                        "UE rejected PDU Session Modification for SUPI: {}, PSI: {}",
+                        sm_context.supi,
+                        sm_context.pdu_session_id
+                    );
+                    return Ok(Json(PduSessionUpdatedData {
+                        n1_sm_info_to_ue: None,
+                        n1_sm_msg: None,
+                        n2_sm_info: None,
+                        n2_sm_info_type: None,
+                        eps_bearer_info: None,
+                        supported_features: None,
+                        session_ambr: sm_context.session_ambr.clone(),
+                        cn_tunnel_info: None,
+                        additional_cn_tunnel_info: None,
+                        qos_flows_add_mod_list: None,
+                        qos_flows_rel_list: None,
+                        up_cnx_state: None,
+                    }));
+                }
+                _ => {
+                    tracing::warn!(
+                        "Unexpected N1 SM message type {:?} for SUPI: {}",
+                        header.message_type,
+                        sm_context.supi
+                    );
+                    return Err(AppError::ValidationError(format!(
+                        "Unexpected N1 SM message type: {:?}",
+                        header.message_type
+                    )));
+                }
+            }
+        }
+    }
+
+    handle_network_modification(state, sm_context_ref, sm_context, payload).await
+}
+
+async fn handle_ue_modification_request(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    n1_data: &[u8],
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let mod_request = NasParser::parse_pdu_session_modification_request(n1_data)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "UE-initiated PDU Session Modification for SUPI: {}, PSI: {}, PTI: {}, QoS rules: {}, QoS flow descs: {}",
+        sm_context.supi,
+        mod_request.pdu_session_id,
+        mod_request.pti,
+        mod_request.requested_qos_rules.len(),
+        mod_request.requested_qos_flow_descriptions.len()
+    );
+
+    if !matches!(sm_context.state, SmContextState::Active) {
+        let reject = NasParser::build_pdu_session_modification_reject(
+            mod_request.pdu_session_id,
+            mod_request.pti,
+            GsmCause::MessageTypeNotCompatible,
+        );
+        let encoded = general_purpose::STANDARD.encode(&reject);
+        return Ok(Json(PduSessionUpdatedData {
+            n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded }),
+            n1_sm_msg: None,
+            n2_sm_info: None,
+            n2_sm_info_type: None,
+            eps_bearer_info: None,
+            supported_features: None,
+            session_ambr: sm_context.session_ambr.clone(),
+            cn_tunnel_info: None,
+            additional_cn_tunnel_info: None,
+            qos_flows_add_mod_list: None,
+            qos_flows_rel_list: None,
+            up_cnx_state: None,
+        }));
+    }
+
+    let qos_mgr = QosFlowManager::new(Arc::new(state.db.clone()));
+    let mut add_qos_flows: Vec<QosFlow> = Vec::new();
+    let mut remove_qfis: Vec<u8> = Vec::new();
+
+    for desc in &mod_request.requested_qos_flow_descriptions {
+        match desc.operation_code {
+            QosFlowOperationCode::CreateNew => {
+                let five_qi = desc.parameters.iter()
+                    .find_map(|p| p.get_five_qi())
+                    .unwrap_or(9);
+                let qos_flow = state
+                    .slice_qos_policy_service
+                    .create_qos_flow_with_5qi(&sm_context.s_nssai, desc.qfi, five_qi);
+                add_qos_flows.push(qos_flow);
+            }
+            QosFlowOperationCode::Delete => {
+                remove_qfis.push(desc.qfi);
+            }
+            QosFlowOperationCode::Modify => {
+                let five_qi = desc.parameters.iter()
+                    .find_map(|p| p.get_five_qi())
+                    .unwrap_or(sm_context.qos_flows.iter()
+                        .find(|f| f.qfi == desc.qfi)
+                        .map(|f| f.five_qi)
+                        .unwrap_or(9));
+                let modified_flow = QosFlow::new_with_5qi(desc.qfi, five_qi);
+                if let Err(e) = qos_mgr.modify_qos_flow(&sm_context_ref, modified_flow).await {
+                    tracing::warn!("Failed to modify QoS flow {}: {}", desc.qfi, e);
+                }
+            }
+        }
+    }
+
+    if !add_qos_flows.is_empty() {
+        qos_mgr.add_qos_flows(&sm_context_ref, add_qos_flows.clone()).await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to add QoS flows: {}", e)))?;
+    }
+    if !remove_qfis.is_empty() {
+        qos_mgr.remove_qos_flows(&sm_context_ref, remove_qfis.clone()).await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to remove QoS flows: {}", e)))?;
+    }
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        let add_opt = if !add_qos_flows.is_empty() { Some(add_qos_flows.as_slice()) } else { None };
+        let rem_opt = if !remove_qfis.is_empty() { Some(remove_qfis.as_slice()) } else { None };
+
+        if add_opt.is_some() || rem_opt.is_some() {
+            PfcpSessionManager::modify_session(
+                pfcp_client, seid, None, add_opt, rem_opt,
+                sm_context.up_security_context.as_ref(),
+            ).await.map_err(|e| {
+                tracing::error!("PFCP modification failed for SUPI: {}: {}", sm_context.supi, e);
+                AppError::InternalError(format!("PFCP session modification failed: {}", e))
+            })?;
+        }
+    }
+
+    let authorized_rules: Vec<NasQosRule> = mod_request.requested_qos_rules.clone();
+    let authorized_descs: Vec<NasQosFlowDescription> = mod_request.requested_qos_flow_descriptions.clone();
+
+    let n1_command = NasParser::build_pdu_session_modification_command(
+        mod_request.pdu_session_id,
+        mod_request.pti,
+        None,
+        None,
+        None,
+        if authorized_rules.is_empty() { None } else { Some(&authorized_rules) },
+        if authorized_descs.is_empty() { None } else { Some(&authorized_descs) },
+    );
+    let encoded_n1 = general_purpose::STANDARD.encode(&n1_command);
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! { "$set": { "updated_at": mongodb::bson::DateTime::now() } },
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let qos_flows_add_mod_list = if !add_qos_flows.is_empty() {
+        Some(add_qos_flows.iter().map(|f| QosFlowItem { qfi: f.qfi, qos_profile: None }).collect())
+    } else {
+        None
+    };
+    let qos_flows_rel_list = if !remove_qfis.is_empty() {
+        Some(remove_qfis.iter().map(|qfi| QosFlowItem { qfi: *qfi, qos_profile: None }).collect())
+    } else {
+        None
+    };
+
+    tracing::info!(
+        "UE-initiated modification accepted for SUPI: {}, PSI: {}, added: {}, removed: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        add_qos_flows.len(),
+        remove_qfis.len()
+    );
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded_n1 }),
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list,
+        qos_flows_rel_list,
+        up_cnx_state: None,
+    }))
+}
+
+async fn handle_ue_release_request(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    n1_data: &[u8],
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let release_request = NasParser::parse_pdu_session_release_request(n1_data)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "UE-initiated PDU Session Release for SUPI: {}, PSI: {}, PTI: {}, cause: {:?}",
+        sm_context.supi,
+        release_request.pdu_session_id,
+        release_request.pti,
+        release_request.cause
+    );
 
     collection
         .update_one(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending)
+                    "state": mongodb::bson::to_bson(&SmContextState::InactivePending)
                         .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
-            }
+            },
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "Failed to delete PFCP session for SUPI: {}: {}, proceeding with release",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
+
+    collection
+        .delete_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let n1_command = NasParser::build_pdu_session_release_command(
+        release_request.pdu_session_id,
+        release_request.pti,
+        GsmCause::RegularDeactivation,
+    );
+    let encoded_n1 = general_purpose::STANDARD.encode(&n1_command);
+
+    tracing::info!(
+        "UE-initiated release completed for SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded_n1 }),
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: Some(N2SmInfoType::PduResRelCmd),
+        eps_bearer_info: None,
+        supported_features: None,
+        session_ambr: None,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+    }))
+}
+
+async fn handle_network_modification(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    if !matches!(sm_context.state, SmContextState::Active) {
+        return Err(AppError::ValidationError(
+            "SM context must be in ACTIVE state for modification".to_string(),
+        ));
+    }
 
     let qos_mgr = QosFlowManager::new(Arc::new(state.db.clone()));
 
@@ -1614,13 +1933,12 @@ pub async fn update_pdu_session(
                     .slice_qos_policy_service
                     .create_default_qos_flow(&sm_context.s_nssai, qf_item.qfi)
             };
-            add_qos_flows.push(qos_flow.clone());
+            add_qos_flows.push(qos_flow);
         }
 
         if !add_qos_flows.is_empty() {
-            if let Err(e) = qos_mgr.add_qos_flows(&sm_context_ref, add_qos_flows.clone()).await {
-                tracing::warn!("Failed to add QoS flows: {}", e);
-            }
+            qos_mgr.add_qos_flows(&sm_context_ref, add_qos_flows.clone()).await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to add QoS flows: {}", e)))?;
         }
     }
 
@@ -1630,53 +1948,74 @@ pub async fn update_pdu_session(
         }
 
         if !remove_qfis.is_empty() {
-            if let Err(e) = qos_mgr.remove_qos_flows(&sm_context_ref, remove_qfis.clone()).await {
-                tracing::warn!("Failed to remove QoS flows: {}", e);
-            }
+            qos_mgr.remove_qos_flows(&sm_context_ref, remove_qfis.clone()).await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to remove QoS flows: {}", e)))?;
         }
     }
 
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        let add_flows_opt = if !add_qos_flows.is_empty() { Some(add_qos_flows.as_slice()) } else { None };
-        let remove_qfis_opt = if !remove_qfis.is_empty() { Some(remove_qfis.as_slice()) } else { None };
+        let add_opt = if !add_qos_flows.is_empty() { Some(add_qos_flows.as_slice()) } else { None };
+        let rem_opt = if !remove_qfis.is_empty() { Some(remove_qfis.as_slice()) } else { None };
 
-        match PfcpSessionManager::modify_session(pfcp_client, seid, None, add_flows_opt, remove_qfis_opt, sm_context.up_security_context.as_ref()).await {
-            Ok(_) => {
-                tracing::info!(
-                    "PFCP Session modified for SUPI: {}, SEID: {}, State: ModificationPending -> Active",
-                    sm_context.supi,
-                    seid
-                );
-            }
-            Err(e) => {
-                new_state = crate::types::SmContextState::ModificationPending;
-                tracing::warn!(
-                    "Failed to modify PFCP session for SUPI: {}: {}, State remains: ModificationPending",
-                    sm_context.supi,
-                    e
-                );
-            }
+        if add_opt.is_some() || rem_opt.is_some() {
+            PfcpSessionManager::modify_session(
+                pfcp_client, seid, None, add_opt, rem_opt,
+                sm_context.up_security_context.as_ref(),
+            ).await.map_err(|e| {
+                AppError::InternalError(format!("PFCP session modification failed: {}", e))
+            })?;
+
+            tracing::info!(
+                "PFCP Session modified for SUPI: {}, SEID: {}",
+                sm_context.supi,
+                seid
+            );
         }
-    } else {
-        tracing::debug!("PFCP client or session ID not available, skipping PFCP session modification, State: ModificationPending -> Active");
     }
 
-    let updated_ambr = payload.session_ambr.clone().or(sm_context.session_ambr.clone());
-
-    let update_doc = doc! {
+    let mut update_doc = doc! {
         "$set": {
-            "state": mongodb::bson::to_bson(&new_state)
-                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
             "updated_at": mongodb::bson::DateTime::now()
         }
     };
+
+    if let Some(ref new_ambr) = payload.session_ambr {
+        update_doc.get_document_mut("$set")
+            .map_err(|e| AppError::DatabaseError(format!("Failed to access $set document: {}", e)))?
+            .insert(
+                "session_ambr",
+                mongodb::bson::to_bson(new_ambr)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+            );
+    }
 
     collection
         .update_one(doc! { "_id": &sm_context_ref }, update_doc)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let response = PduSessionUpdatedData {
+    let updated_ambr = payload.session_ambr.clone().or(sm_context.session_ambr.clone());
+
+    let qos_flows_add_mod_list = if !add_qos_flows.is_empty() {
+        Some(add_qos_flows.iter().map(|f| QosFlowItem { qfi: f.qfi, qos_profile: None }).collect())
+    } else {
+        None
+    };
+    let qos_flows_rel_list = if !remove_qfis.is_empty() {
+        Some(remove_qfis.iter().map(|qfi| QosFlowItem { qfi: *qfi, qos_profile: None }).collect())
+    } else {
+        None
+    };
+
+    tracing::info!(
+        "Network-initiated modification for SUPI: {}, PSI: {}, added: {}, removed: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        add_qos_flows.len(),
+        remove_qfis.len()
+    );
+
+    Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
         n2_sm_info: None,
@@ -1686,19 +2025,10 @@ pub async fn update_pdu_session(
         session_ambr: updated_ambr,
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
-        qos_flows_add_mod_list: None,
-        qos_flows_rel_list: None,
+        qos_flows_add_mod_list,
+        qos_flows_rel_list,
         up_cnx_state: None,
-    };
-
-    tracing::info!(
-        "Updated PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        sm_context_ref
-    );
-
-    Ok(Json(response))
+    }))
 }
 
 pub async fn release_pdu_session(
