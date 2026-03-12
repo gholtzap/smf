@@ -155,3 +155,35 @@ pub fn encode_pdu_session_resource_setup_request_transfer(
 
     Ok(encoder.finish())
 }
+
+pub fn encode_path_switch_request_acknowledge_transfer(
+    ul_tunnel_ipv4: Option<Ipv4Addr>,
+    ul_tunnel_teid: Option<u32>,
+) -> Result<Vec<u8>> {
+    let mut encoder = NgapEncoder::new();
+
+    let has_ul_tunnel = ul_tunnel_ipv4.is_some() && ul_tunnel_teid.is_some();
+
+    encoder.write_bit(false);
+    encoder.write_bit(has_ul_tunnel);
+    encoder.write_bit(false);
+    encoder.write_bit(false);
+
+    if has_ul_tunnel {
+        let ipv4 = ul_tunnel_ipv4.unwrap();
+        let teid = ul_tunnel_teid.unwrap();
+
+        encoder.write_bit(false);
+        encoder.write_bit(false);
+        encoder.write_bit(false);
+        encoder.write_bit(false);
+
+        encoder.write_bits(31, 8);
+
+        encoder.write_bytes(&ipv4.octets());
+        encoder.write_bytes(&teid.to_be_bytes());
+    }
+
+    encoder.align_to_byte();
+    Ok(encoder.finish())
+}

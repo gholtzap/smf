@@ -1338,14 +1338,29 @@ async fn handle_path_switch(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+    let n2_ngap_bytes = if let Some(ref info) = cn_tunnel_info {
+        let upf_addr: std::net::Ipv4Addr = info.ipv4_addr.as_deref().unwrap_or("0.0.0.0")
+            .parse()
+            .map_err(|e: std::net::AddrParseError| AppError::ValidationError(e.to_string()))?;
+        let teid = u32::from_str_radix(&info.gtp_teid, 16)
+            .map_err(|e| AppError::ValidationError(format!("Invalid TEID hex: {}", e)))?;
+        crate::parsers::ngap_encoder::encode_path_switch_request_acknowledge_transfer(
+            Some(upf_addr), Some(teid),
+        )
+    } else {
+        crate::parsers::ngap_encoder::encode_path_switch_request_acknowledge_transfer(None, None)
+    }.map_err(|e| AppError::ValidationError(format!("NGAP encode failed: {}", e)))?;
+
+    let n2_ngap_data = general_purpose::STANDARD.encode(&n2_ngap_bytes);
+
     let response = PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
         n2_sm_info: Some(N2SmInfo {
             content_id: "n2-sm-info".to_string(),
             n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::PduResModifyReq,
-                ngap_data: "base64_encoded_path_switch_ack".to_string(),
+                ngap_ie_type: NgapIeType::PathSwitchReqAck,
+                ngap_data: n2_ngap_data,
             },
         }),
         n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
