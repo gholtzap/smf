@@ -426,6 +426,66 @@ impl PfcpSessionManager {
         }
     }
 
+    pub async fn deactivate_downlink(
+        pfcp_client: &PfcpClient,
+        seid: u64,
+    ) -> Result<PfcpSessionModificationResponse> {
+        let update_far = UpdateFar {
+            far_id: 2,
+            apply_action: Some(ApplyAction {
+                drop: false,
+                forw: false,
+                buff: true,
+                nocp: true,
+                dupl: false,
+            }),
+            update_forwarding_parameters: None,
+            update_duplicating_parameters: None,
+            bar_id: None,
+        };
+
+        let request = PfcpSessionModificationRequest {
+            f_seid: None,
+            remove_pdr: None,
+            remove_far: None,
+            remove_qer: None,
+            remove_urr: None,
+            create_pdr: None,
+            create_far: None,
+            create_qer: None,
+            create_urr: None,
+            update_pdr: None,
+            update_far: Some(vec![update_far]),
+            update_qer: None,
+            update_urr: None,
+            query_urr: None,
+            pfcp_session_retention_information: None,
+            user_plane_inactivity_timer: None,
+            up_security_parameters: None,
+        };
+
+        pfcp_client.send_session_modification_request(seid, &request).await?;
+
+        info!("Sent PFCP DL deactivation (BUFF) for SEID: {}", seid);
+
+        let response = pfcp_client
+            .receive_message_with_timeout(std::time::Duration::from_secs(5))
+            .await?;
+
+        let modification_response = PfcpClientInner::decode_session_modification_response(&response.payload)?;
+
+        match modification_response.cause {
+            PfcpCause::RequestAccepted => {
+                info!("PFCP DL deactivated successfully for SEID: {}", seid);
+                Ok(modification_response)
+            }
+            _ => {
+                warn!("PFCP DL deactivation failed: {:?}", modification_response.cause);
+                Err(anyhow!("PFCP DL deactivation failed: {:?}", modification_response.cause))
+            }
+        }
+    }
+
     pub async fn delete_session(
         pfcp_client: &PfcpClient,
         seid: u64,

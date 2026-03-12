@@ -262,6 +262,10 @@ mod tests {
             ue_security_capabilities: None,
             session_ambr: None,
             upf_address: Some("192.168.1.10".to_string()),
+            upf_teid: None,
+            upf_tunnel_ipv4: None,
+            serving_nf_id: None,
+            sm_context_status_uri: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

@@ -244,6 +244,10 @@ pub struct SmContext {
     pub session_ambr: Option<Ambr>,
     pub upf_address: Option<String>,
     #[serde(default)]
+    pub upf_teid: Option<u32>,
+    #[serde(default)]
+    pub upf_tunnel_ipv4: Option<String>,
+    #[serde(default)]
     pub serving_nf_id: Option<String>,
     #[serde(default)]
     pub sm_context_status_uri: Option<String>,
@@ -284,6 +288,8 @@ impl SmContext {
             ue_security_capabilities: None,
             session_ambr: None,
             upf_address: None,
+            upf_teid: None,
+            upf_tunnel_ipv4: None,
             serving_nf_id: create_data.serving_nf_id.clone(),
             sm_context_status_uri: create_data.sm_context_status_uri.clone(),
             created_at: Utc::now(),
@@ -327,6 +333,8 @@ pub struct PduSessionUpdatedData {
     pub additional_cn_tunnel_info: Option<TunnelInfo>,
     pub qos_flows_add_mod_list: Option<Vec<QosFlowItem>>,
     pub qos_flows_rel_list: Option<Vec<QosFlowItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub up_cnx_state: Option<UpCnxState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

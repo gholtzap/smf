@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
 use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -672,6 +672,13 @@ pub async fn create_pdu_session(
         tracing::debug!("PFCP client not available, skipping PFCP session establishment, State: Active");
     }
 
+    if let Some(teid) = upf_teid {
+        sm_context.upf_teid = Some(teid);
+    }
+    if let Some(addr) = upf_addr {
+        sm_context.upf_tunnel_ipv4 = Some(addr.to_string());
+    }
+
     if let Err(e) = collection.insert_one(&sm_context).await {
         tracing::error!("DB insert failed for SUPI: {}, cleaning up allocated resources", payload.supi);
         IpamService::release_ip(&state.db, &sm_context.id).await.ok();
@@ -1005,6 +1012,7 @@ async fn handle_n2_setup_response(
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
+        up_cnx_state: None,
     }))
 }
 
@@ -1078,6 +1086,7 @@ async fn handle_path_switch(
                                         additional_cn_tunnel_info: None,
                                         qos_flows_add_mod_list: None,
                                         qos_flows_rel_list: None,
+                                        up_cnx_state: None,
                                     }));
                                 }
                                 Ok(response) => {
@@ -1347,6 +1356,7 @@ async fn handle_path_switch(
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
+        up_cnx_state: None,
     };
 
     tracing::info!(
@@ -1357,6 +1367,179 @@ async fn handle_path_switch(
     );
 
     Ok(Json(response))
+}
+
+async fn handle_up_cnx_state_change(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    up_cnx_state: &UpCnxState,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    match up_cnx_state {
+        UpCnxState::Deactivated => {
+            tracing::info!(
+                "upCnxState DEACTIVATED for SUPI: {}, PDU Session ID: {} - UE entering idle mode",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+                match PfcpSessionManager::deactivate_downlink(pfcp_client, seid).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "DL FAR set to BUFF for SUPI: {}, SEID: {}",
+                            sm_context.supi,
+                            seid
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to deactivate DL for SUPI: {}, SEID: {}: {}",
+                            sm_context.supi,
+                            seid,
+                            e
+                        );
+                        return Err(AppError::ValidationError(format!(
+                            "PFCP DL deactivation failed: {}", e
+                        )));
+                    }
+                }
+            }
+
+            collection
+                .update_one(
+                    doc! { "_id": &sm_context_ref },
+                    doc! {
+                        "$set": {
+                            "an_tunnel_info": mongodb::bson::Bson::Null,
+                            "updated_at": mongodb::bson::DateTime::now()
+                        }
+                    }
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            Ok(Json(PduSessionUpdatedData {
+                n1_sm_info_to_ue: None,
+                n1_sm_msg: None,
+                n2_sm_info: None,
+                n2_sm_info_type: None,
+                eps_bearer_info: None,
+                supported_features: None,
+                session_ambr: sm_context.session_ambr.clone(),
+                cn_tunnel_info: None,
+                additional_cn_tunnel_info: None,
+                qos_flows_add_mod_list: None,
+                qos_flows_rel_list: None,
+                up_cnx_state: Some(UpCnxState::Deactivated),
+            }))
+        }
+
+        UpCnxState::Activating => {
+            if !matches!(sm_context.state, crate::types::SmContextState::Active | crate::types::SmContextState::ModificationPending) {
+                tracing::warn!(
+                    "upCnxState ACTIVATING rejected - session not in operational state for SUPI: {}, state: {:?}",
+                    sm_context.supi,
+                    sm_context.state
+                );
+                return Err(AppError::ValidationError(format!(
+                    "Session not in operational state: {:?}", sm_context.state
+                )));
+            }
+
+            tracing::info!(
+                "upCnxState ACTIVATING for SUPI: {}, PDU Session ID: {} - Service Request / re-establishing user plane",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+
+            let upf_teid = sm_context.upf_teid
+                .or(sm_context.pfcp_session_id.map(|seid| seid as u32))
+                .ok_or_else(|| AppError::ValidationError(
+                    "No UPF TEID available for session re-activation".to_string()
+                ))?;
+
+            let upf_ipv4_str = sm_context.upf_tunnel_ipv4.as_deref()
+                .or(sm_context.upf_address.as_deref())
+                .ok_or_else(|| AppError::ValidationError(
+                    "No UPF address available for session re-activation".to_string()
+                ))?;
+
+            let upf_ipv4: std::net::Ipv4Addr = upf_ipv4_str.parse().map_err(|e| {
+                AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
+            })?;
+
+            let default_qfi = sm_context.qos_flows.first().map(|f| f.qfi).unwrap_or(1);
+
+            let ambr_dl_kbps = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| AmbrEnforcementService::parse_ambr_bitrate(&ambr.downlink).ok())
+                .map(|bps| bps / 1000)
+                .unwrap_or(100_000);
+            let ambr_ul_kbps = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| AmbrEnforcementService::parse_ambr_bitrate(&ambr.uplink).ok())
+                .map(|bps| bps / 1000)
+                .unwrap_or(50_000);
+
+            let n2_transfer = crate::parsers::ngap_encoder::encode_pdu_session_resource_setup_request_transfer(
+                ambr_dl_kbps,
+                ambr_ul_kbps,
+                upf_teid,
+                upf_ipv4,
+                default_qfi,
+            ).map_err(|e| AppError::ValidationError(format!("Failed to encode N2 transfer: {}", e)))?;
+
+            let n2_encoded = general_purpose::STANDARD.encode(&n2_transfer);
+
+            tracing::info!(
+                "Built N2 PDU Session Resource Setup Request Transfer for SUPI: {}, TEID: {}, UPF: {}, QFI: {}, AMBR DL/UL: {}/{}",
+                sm_context.supi,
+                upf_teid,
+                upf_ipv4,
+                default_qfi,
+                ambr_dl_kbps,
+                ambr_ul_kbps
+            );
+
+            let cn_tunnel_info = TunnelInfo {
+                ipv4_addr: Some(upf_ipv4.to_string()),
+                ipv6_addr: None,
+                gtp_teid: format!("{:08x}", upf_teid),
+            };
+
+            Ok(Json(PduSessionUpdatedData {
+                n1_sm_info_to_ue: None,
+                n1_sm_msg: None,
+                n2_sm_info: Some(N2SmInfo {
+                    content_id: "n2-pdu-session-resource-setup-request-transfer".to_string(),
+                    n2_info_content: N2InfoContent {
+                        ngap_ie_type: NgapIeType::PduResSetupReq,
+                        ngap_data: n2_encoded,
+                    },
+                }),
+                n2_sm_info_type: Some(N2SmInfoType::PduResSetupReq),
+                eps_bearer_info: None,
+                supported_features: None,
+                session_ambr: sm_context.session_ambr.clone(),
+                cn_tunnel_info: Some(cn_tunnel_info),
+                additional_cn_tunnel_info: None,
+                qos_flows_add_mod_list: None,
+                qos_flows_rel_list: None,
+                up_cnx_state: Some(UpCnxState::Activating),
+            }))
+        }
+
+        UpCnxState::Activated => {
+            tracing::warn!(
+                "Unexpected upCnxState ACTIVATED received for SUPI: {} - this should be set by SMF, not AMF",
+                sm_context.supi
+            );
+            Err(AppError::ValidationError(
+                "upCnxState ACTIVATED is not a valid request value".to_string()
+            ))
+        }
+    }
 }
 
 pub async fn update_pdu_session(
@@ -1378,6 +1561,10 @@ pub async fn update_pdu_session(
 
     if matches!(payload.n2_sm_info_type, Some(crate::models::N2SmInfoType::PduResSetupRsp)) {
         return handle_n2_setup_response(state, sm_context_ref, sm_context, payload).await;
+    }
+
+    if let Some(ref up_cnx_state) = payload.up_cnx_state {
+        return handle_up_cnx_state_change(state, sm_context_ref, sm_context, up_cnx_state).await;
     }
 
     let mut new_state = crate::types::SmContextState::Active;
@@ -1486,6 +1673,7 @@ pub async fn update_pdu_session(
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
+        up_cnx_state: None,
     };
 
     tracing::info!(
