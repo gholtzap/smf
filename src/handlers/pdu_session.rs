@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType};
-use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState};
+use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
@@ -843,7 +843,54 @@ pub async fn create_pdu_session(
     ).into_response())
 }
 
-pub async fn retrieve_pdu_session(
+pub async fn retrieve_sm_context(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    _payload: Option<Json<SmContextRetrieveData>>,
+) -> Result<Json<SmContextRetrievedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    tracing::info!(
+        "RetrieveSMContext for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context.id
+    );
+
+    let eps_pdn_cnx = build_eps_pdn_cnx_container(&sm_context);
+
+    Ok(Json(SmContextRetrievedData {
+        ue_eps_pdn_connection: eps_pdn_cnx,
+    }))
+}
+
+fn build_eps_pdn_cnx_container(ctx: &SmContext) -> String {
+    let container = serde_json::json!({
+        "pduSessionId": ctx.pdu_session_id,
+        "dnn": ctx.dnn,
+        "sNssai": ctx.s_nssai,
+        "pduSessionType": ctx.pdu_session_type,
+        "sscMode": ctx.ssc_mode,
+        "sessionAmbr": ctx.session_ambr,
+        "qosFlows": ctx.qos_flows.iter().map(|f| {
+            serde_json::json!({
+                "qfi": f.qfi,
+                "fiveQi": f.five_qi,
+                "priorityLevel": f.priority_level,
+            })
+        }).collect::<Vec<_>>(),
+        "pduAddress": ctx.pdu_address,
+    });
+    general_purpose::STANDARD.encode(container.to_string().as_bytes())
+}
+
+pub async fn admin_retrieve_pdu_session(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
 ) -> Result<Json<SmContext>, AppError> {
@@ -856,7 +903,7 @@ pub async fn retrieve_pdu_session(
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     tracing::info!(
-        "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        "Admin retrieved PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
         sm_context.supi,
         sm_context.pdu_session_id,
         sm_context.id
