@@ -75,7 +75,7 @@ pub async fn create_pdu_session(
         dnn_config.description
     );
 
-    let (subscriber_5qi, subscriber_ambr, subscriber_ssc_modes) = if let Some(ref udm_client) = state.udm_client {
+    let (subscriber_5qi, subscriber_ambr, subscriber_ssc_modes, subscriber_pdu_types) = if let Some(ref udm_client) = state.udm_client {
         let udm_uri = std::env::var("UDM_URI").unwrap_or_default();
 
         match udm_client.get_sm_data(
@@ -105,36 +105,23 @@ pub async fn create_pdu_session(
                             modes.iter().map(|m| SscMode::from(m.clone())).collect::<Vec<SscMode>>()
                         });
 
-                        if let Some(qos_5qi) = sub_5qi {
-                            tracing::info!(
-                                "Using subscriber 5QI: {} from UDM for SUPI: {}",
-                                qos_5qi,
-                                payload.supi
-                            );
-                        }
+                        let sub_pdu_types = Some(dnn_config.pdu_session_types.clone());
 
-                        if sub_ambr.is_some() {
-                            tracing::info!(
-                                "Using subscriber session AMBR from UDM for SUPI: {}",
-                                payload.supi
-                            );
-                        }
-
-                        (sub_5qi, sub_ambr, sub_ssc_modes)
+                        (sub_5qi, sub_ambr, sub_ssc_modes, sub_pdu_types)
                     } else {
                         tracing::warn!(
                             "DNN {} not found in subscriber's UDM data for SUPI: {}, using defaults",
                             payload.dnn,
                             payload.supi
                         );
-                        (None, None, None)
+                        (None, None, None, None)
                     }
                 } else {
                     tracing::warn!(
                         "No DNN configurations found in UDM data for SUPI: {}, using defaults",
                         payload.supi
                     );
-                    (None, None, None)
+                    (None, None, None, None)
                 }
             }
             Err(e) => {
@@ -143,12 +130,12 @@ pub async fn create_pdu_session(
                     payload.supi,
                     e
                 );
-                (None, None, None)
+                (None, None, None, None)
             }
         }
     } else {
         tracing::debug!("UDM client not available, skipping subscriber validation");
-        (None, None, None)
+        (None, None, None, None)
     };
 
     let existing = collection
@@ -190,6 +177,42 @@ pub async fn create_pdu_session(
     }
 
     let mut sm_context = SmContext::new(&payload);
+
+    if let Some(ref sub_pdu_types) = subscriber_pdu_types {
+        let requested = &sm_context.pdu_session_type;
+        let allowed = sub_pdu_types.allowed_session_types.as_ref();
+
+        let is_allowed = match allowed {
+            Some(types) => types.iter().any(|t| match (t, requested) {
+                (crate::types::udm::PduSessionType::Ipv4, PduSessionType::Ipv4) => true,
+                (crate::types::udm::PduSessionType::Ipv6, PduSessionType::Ipv6) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv4v6) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv4) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv6) => true,
+                (crate::types::udm::PduSessionType::Unstructured, PduSessionType::Unstructured) => true,
+                (crate::types::udm::PduSessionType::Ethernet, PduSessionType::Ethernet) => true,
+                _ => false,
+            }),
+            None => true,
+        };
+
+        if !is_allowed {
+            let default_type = match sub_pdu_types.default_session_type {
+                crate::types::udm::PduSessionType::Ipv4 => PduSessionType::Ipv4,
+                crate::types::udm::PduSessionType::Ipv6 => PduSessionType::Ipv6,
+                crate::types::udm::PduSessionType::Ipv4v6 => PduSessionType::Ipv4v6,
+                crate::types::udm::PduSessionType::Unstructured => PduSessionType::Unstructured,
+                crate::types::udm::PduSessionType::Ethernet => PduSessionType::Ethernet,
+            };
+            tracing::info!(
+                "Requested PDU session type {:?} not allowed for SUPI: {}, falling back to default {:?}",
+                requested,
+                payload.supi,
+                default_type
+            );
+            sm_context.pdu_session_type = default_type;
+        }
+    }
 
     let selected_ssc_mode = state.ssc_selector.select_ssc_mode(
         payload.ssc_mode.as_deref(),
@@ -853,19 +876,36 @@ async fn handle_n2_setup_response(
     let n2_sm_info = payload.n2_sm_info.as_ref()
         .ok_or_else(|| AppError::ValidationError("N2 SM Info required for PDU Resource Setup Response".to_string()))?;
 
-    let an_tunnel_info = HandoverService::extract_an_tunnel_info(&n2_sm_info.n2_info_content.ngap_data)
-        .map_err(AppError::ValidationError)?;
+    let decoded_bytes = general_purpose::STANDARD
+        .decode(&n2_sm_info.n2_info_content.ngap_data)
+        .map_err(|e| AppError::ValidationError(format!("Failed to decode base64 NGAP data: {}", e)))?;
+
+    let parser = crate::parsers::ngap::NgapParser::new();
+    let response_transfer = parser.extract_pdu_session_resource_setup_response_transfer(&decoded_bytes)
+        .map_err(|e| AppError::ValidationError(format!("Failed to decode PDU Session Resource Setup Response Transfer: {}", e)))?;
+
+    let gtp_tunnel = &response_transfer.dl_qos_flow_per_tnl_information.up_transport_layer_information;
+    let ipv4_addr = gtp_tunnel.get_ip_address();
+    let teid = gtp_tunnel.get_teid()
+        .ok_or_else(|| AppError::ValidationError("Failed to extract GTP TEID".to_string()))?;
+    let teid_hex = format!("{:08x}", teid);
+
+    let an_tunnel_info = crate::models::TunnelInfo {
+        ipv4_addr: ipv4_addr.clone(),
+        ipv6_addr: None,
+        gtp_teid: teid_hex.clone(),
+    };
 
     tracing::info!(
         "N2 Setup Response - extracted gNB tunnel: TEID={}, IP={:?} for SUPI: {}, PDU Session ID: {}",
-        an_tunnel_info.gtp_teid,
-        an_tunnel_info.ipv4_addr,
+        teid_hex,
+        ipv4_addr,
         sm_context.supi,
         sm_context.pdu_session_id
     );
 
     if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        let an_ipv4_str = an_tunnel_info.ipv4_addr.as_ref()
+        let an_ipv4_str = ipv4_addr.as_ref()
             .ok_or_else(|| AppError::ValidationError("gNB IPv4 address required".to_string()))?;
         let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
             AppError::ValidationError(format!("Invalid gNB IPv4 address: {}", e))
@@ -875,7 +915,7 @@ async fn handle_n2_setup_response(
             pfcp_client,
             seid,
             an_ipv4,
-            &an_tunnel_info.gtp_teid,
+            &teid_hex,
             sm_context.up_security_context.as_ref(),
         ).await.map_err(|e| {
             AppError::ValidationError(format!("Failed to activate DL FAR: {}", e))
@@ -886,7 +926,7 @@ async fn handle_n2_setup_response(
             sm_context.supi,
             seid,
             an_ipv4,
-            an_tunnel_info.gtp_teid
+            teid_hex
         );
     }
 

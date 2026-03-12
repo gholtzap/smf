@@ -456,10 +456,13 @@ impl PfcpSessionManager {
         }
     }
 
-    pub fn generate_seid(sm_context_id: &str, pdu_session_id: u8) -> u64 {
-        let hash = sm_context_id.bytes().fold(0u64, |acc, b| {
-            acc.wrapping_mul(31).wrapping_add(b as u64)
-        });
-        (hash & 0x0000_FFFF_FFFF_FF00) | (pdu_session_id as u64)
+    pub fn generate_seid(sm_context_id: &str, _pdu_session_id: u8) -> u64 {
+        let uuid = uuid::Uuid::parse_str(sm_context_id)
+            .unwrap_or_else(|_| uuid::Uuid::new_v4());
+        let bytes = uuid.as_bytes();
+        u64::from_be_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
     }
 }
