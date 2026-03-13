@@ -34,6 +34,7 @@ pub mod certificate_auto_rotation;
 pub mod certificate_audit;
 pub mod crl;
 pub mod ocsp;
+pub mod ue_context;
 
 use serde::{Deserialize, Serialize};
 

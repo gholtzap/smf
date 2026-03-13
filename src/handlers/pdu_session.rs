@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     Json,
@@ -26,6 +26,7 @@ use crate::services::up_security_config::UpSecurityConfigService;
 use crate::services::ambr_enforcement::AmbrEnforcementService;
 use crate::services::context_transfer_target::ContextTransferTarget;
 use crate::types::up_security::UeSecurityCapabilities;
+use crate::types::ue_context::{SmContextSummary, SmContextListQuery, validate_supi};
 use std::sync::Arc;
 
 pub async fn create_pdu_session(
@@ -2207,30 +2208,45 @@ pub async fn release_pdu_session(
 pub async fn list_ue_pdu_sessions(
     State(state): State<AppState>,
     Path(supi): Path<String>,
-) -> Result<Json<Vec<SmContext>>, AppError> {
+    Query(query): Query<SmContextListQuery>,
+) -> Result<Json<Vec<SmContextSummary>>, AppError> {
+    validate_supi(&supi).map_err(AppError::ValidationError)?;
+
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
+    let mut filter = doc! { "supi": &supi };
+    if let Some(pdu_session_id) = query.pdu_session_id {
+        filter.insert("pdu_session_id", pdu_session_id as i32);
+    }
+    if let Some(ref dnn) = query.dnn {
+        filter.insert("dnn", dnn);
+    }
+
     let sessions: Vec<SmContext> = collection
-        .find(doc! { "supi": &supi })
+        .find(filter)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .try_collect()
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    tracing::info!(
+    let summaries: Vec<SmContextSummary> = sessions.into_iter().map(SmContextSummary::from).collect();
+
+    tracing::debug!(
         "Retrieved {} PDU sessions for SUPI: {}",
-        sessions.len(),
+        summaries.len(),
         supi
     );
 
-    Ok(Json(sessions))
+    Ok(Json(summaries))
 }
 
 pub async fn retrieve_pdu_session_by_supi(
     State(state): State<AppState>,
     Path((supi, pdu_session_id)): Path<(String, u8)>,
-) -> Result<Json<SmContext>, AppError> {
+) -> Result<Json<SmContextSummary>, AppError> {
+    validate_supi(&supi).map_err(AppError::ValidationError)?;
+
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
@@ -2242,14 +2258,13 @@ pub async fn retrieve_pdu_session_by_supi(
             supi, pdu_session_id
         )))?;
 
-    tracing::info!(
-        "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+    tracing::debug!(
+        "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}",
         supi,
-        pdu_session_id,
-        sm_context.id
+        pdu_session_id
     );
 
-    Ok(Json(sm_context))
+    Ok(Json(SmContextSummary::from(sm_context)))
 }
 
 pub async fn handle_handover_required(
