@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     Json,
 };
@@ -40,15 +40,19 @@ impl IntoResponse for AppError {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
         };
 
-        let body = Json(serde_json::json!({
+        let body = serde_json::json!({
             "type": "https://httpstatuses.io/".to_string() + &status.as_u16().to_string(),
             "title": self.title(),
             "status": status.as_u16(),
             "detail": detail,
             "cause": self.cause_str()
-        }));
+        });
 
-        (status, body).into_response()
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/problem+json")],
+            Json(body),
+        ).into_response()
     }
 }
 

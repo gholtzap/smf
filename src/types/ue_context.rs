@@ -61,9 +61,19 @@ pub fn validate_supi(supi: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    if supi.starts_with("nai-") {
+    if let Some(nai) = supi.strip_prefix("nai-") {
+        if !nai.contains('@') || nai.starts_with('@') || nai.ends_with('@') {
+            return Err("Invalid NAI format: must be username@realm".to_string());
+        }
         return Ok(());
     }
 
-    Err(format!("Invalid SUPI format: must start with 'imsi-' or 'nai-', got '{}'", supi))
+    Err("Invalid SUPI format: must start with 'imsi-' or 'nai-'".to_string())
+}
+
+pub fn validate_pdu_session_id(id: u8) -> Result<(), String> {
+    if id < 1 || id > 15 {
+        return Err(format!("Invalid PDU Session ID: must be 1-15, got {}", id));
+    }
+    Ok(())
 }

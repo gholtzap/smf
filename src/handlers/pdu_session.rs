@@ -26,7 +26,7 @@ use crate::services::up_security_config::UpSecurityConfigService;
 use crate::services::ambr_enforcement::AmbrEnforcementService;
 use crate::services::context_transfer_target::ContextTransferTarget;
 use crate::types::up_security::UeSecurityCapabilities;
-use crate::types::ue_context::{SmContextSummary, SmContextListQuery, validate_supi};
+use crate::types::ue_context::{SmContextSummary, SmContextListQuery, validate_supi, validate_pdu_session_id};
 use std::sync::Arc;
 
 pub async fn create_pdu_session(
@@ -2246,17 +2246,19 @@ pub async fn retrieve_pdu_session_by_supi(
     Path((supi, pdu_session_id)): Path<(String, u8)>,
 ) -> Result<Json<SmContextSummary>, AppError> {
     validate_supi(&supi).map_err(AppError::ValidationError)?;
+    validate_pdu_session_id(pdu_session_id).map_err(AppError::ValidationError)?;
 
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
-        .find_one(doc! { "supi": &supi, "pdu_session_id": pdu_session_id as i32 })
+        .find(doc! { "supi": &supi, "pdu_session_id": pdu_session_id as i32 })
+        .sort(doc! { "updated_at": -1 })
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!(
-            "SM Context not found for SUPI {} with PDU Session ID {}",
-            supi, pdu_session_id
-        )))?;
+        .try_next()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound("SM Context not found".to_string()))?;
 
     tracing::debug!(
         "Retrieved PDU Session for SUPI: {}, PDU Session ID: {}",
