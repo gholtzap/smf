@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode};
+use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode, TargetId};
 use crate::types::up_security::{UpSecurityContext, UeSecurityCapabilities};
 use crate::types::sm_context_transfer::{SmContextData, TransferCause};
 
@@ -204,15 +204,34 @@ pub struct Ambr {
     pub downlink: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum N2SmInfoType {
     PduResSetupReq,
     PduResSetupRsp,
+    PduResSetupFail,
     PduResRelCmd,
+    PduResRelRsp,
+    PduResModifyReq,
+    PduResModifyRsp,
+    PduResModifyFail,
+    PduResNty,
+    PduResNtyRel,
+    PduResModifyInd,
+    PduResModifyCfm,
     PathSwitchReq,
     PathSwitchSetupFail,
     PathSwitchReqAck,
+    PathSwitchReqFail,
+    HandoverRequired,
+    HandoverCmd,
+    HandoverPrepFail,
+    HandoverReqAck,
+    HandoverResAllocFail,
+    SecondaryRatUsage,
+    UeContextResumeReq,
+    UeContextResumeRsp,
+    UeContextSuspendReq,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,7 +332,13 @@ pub struct PduSessionUpdateData {
     pub qos_flows_add_mod_request_list: Option<Vec<QosFlowItem>>,
     pub qos_flows_rel_request_list: Option<Vec<QosFlowItem>>,
     pub up_cnx_state: Option<UpCnxState>,
+    pub ho_state: Option<HoState>,
+    pub target_id: Option<TargetId>,
     pub ho_preparation_indication: Option<bool>,
+    pub data_forwarding: Option<bool>,
+    pub n9_forwarding_tunnel: Option<TunnelInfo>,
+    pub cause: Option<SmContextUpdateCause>,
+    pub an_tunnel_info: Option<TunnelInfo>,
     pub pcf_id: Option<String>,
     pub pcf_group_id: Option<String>,
     pub pcf_set_id: Option<String>,
@@ -328,6 +353,7 @@ pub struct PduSessionUpdatedData {
     pub n2_sm_info_type: Option<N2SmInfoType>,
     pub eps_bearer_info: Option<Vec<EpsBearerInfo>>,
     pub supported_features: Option<String>,
+    pub ho_state: Option<HoState>,
     pub session_ambr: Option<Ambr>,
     pub cn_tunnel_info: Option<TunnelInfo>,
     pub additional_cn_tunnel_info: Option<TunnelInfo>,
@@ -335,6 +361,8 @@ pub struct PduSessionUpdatedData {
     pub qos_flows_rel_list: Option<Vec<QosFlowItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub up_cnx_state: Option<UpCnxState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_forwarding: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -381,6 +409,19 @@ pub enum UpCnxState {
     Activated,
     Deactivated,
     Activating,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SmContextUpdateCause {
+    RelDueToHo,
+    EpsFallback,
+    RelDueTo5gAnRelease,
+    RelDueToPsToCs,
+    RelDueToSliceNotAvailable,
+    RelDueToDuplicateSessionId,
+    RelDueToPdnCxMismatch,
+    RelDueToReactivation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

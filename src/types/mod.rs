@@ -121,6 +121,8 @@ pub enum NgapIeType {
     PduResModifyReq,
     PduResModifyRsp,
     PathSwitchReqAck,
+    HandoverCmd,
+    HandoverPrepFail,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

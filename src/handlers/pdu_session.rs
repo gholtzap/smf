@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
-use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HandoverRequiredData, HandoverRequiredResponse, HandoverRequestAckData, HandoverNotifyData, HandoverCancelData, HoState, SmContextRetrieveData, SmContextRetrievedData};
+use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -1009,12 +1009,14 @@ async fn handle_n2_setup_response(
         n2_sm_info_type: None,
         eps_bearer_info: None,
         supported_features: None,
+        ho_state: None,
         session_ambr: sm_context.session_ambr.clone(),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
         up_cnx_state: None,
+        data_forwarding: None,
     }))
 }
 
@@ -1083,12 +1085,14 @@ async fn handle_path_switch(
                                         n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
                                         eps_bearer_info: None,
                                         supported_features: None,
+                                        ho_state: None,
                                         session_ambr: sm_context.session_ambr.clone(),
                                         cn_tunnel_info: None,
                                         additional_cn_tunnel_info: None,
                                         qos_flows_add_mod_list: None,
                                         qos_flows_rel_list: None,
                                         up_cnx_state: None,
+                                        data_forwarding: None,
                                     }));
                                 }
                                 Ok(response) => {
@@ -1368,12 +1372,14 @@ async fn handle_path_switch(
         n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
         eps_bearer_info: None,
         supported_features: None,
+        ho_state: None,
         session_ambr: effective_ambr,
         cn_tunnel_info,
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
         up_cnx_state: None,
+        data_forwarding: None,
     };
 
     tracing::info!(
@@ -1445,12 +1451,14 @@ async fn handle_up_cnx_state_change(
                 n2_sm_info_type: None,
                 eps_bearer_info: None,
                 supported_features: None,
+                ho_state: None,
                 session_ambr: sm_context.session_ambr.clone(),
                 cn_tunnel_info: None,
                 additional_cn_tunnel_info: None,
                 qos_flows_add_mod_list: None,
                 qos_flows_rel_list: None,
                 up_cnx_state: Some(UpCnxState::Deactivated),
+                data_forwarding: None,
             }))
         }
 
@@ -1538,12 +1546,14 @@ async fn handle_up_cnx_state_change(
                 n2_sm_info_type: Some(N2SmInfoType::PduResSetupReq),
                 eps_bearer_info: None,
                 supported_features: None,
+                ho_state: None,
                 session_ambr: sm_context.session_ambr.clone(),
                 cn_tunnel_info: Some(cn_tunnel_info),
                 additional_cn_tunnel_info: None,
                 qos_flows_add_mod_list: None,
                 qos_flows_rel_list: None,
                 up_cnx_state: Some(UpCnxState::Activating),
+                data_forwarding: None,
             }))
         }
 
@@ -1574,6 +1584,28 @@ pub async fn update_pdu_session(
 
     if HandoverService::is_path_switch_request(&payload.n2_sm_info_type) {
         return handle_path_switch(state, sm_context_ref, sm_context, payload).await;
+    }
+
+    if let Some(ref ho_state) = payload.ho_state {
+        match ho_state {
+            HoState::Preparing => {
+                return handle_ho_preparing(state, sm_context_ref, sm_context, payload).await;
+            }
+            HoState::Prepared => {
+                return handle_ho_prepared(state, sm_context_ref, sm_context, payload).await;
+            }
+            HoState::Completed => {
+                return handle_ho_completed(state, sm_context_ref, sm_context, payload).await;
+            }
+            HoState::Cancelled => {
+                return handle_ho_cancelled(state, sm_context_ref, sm_context).await;
+            }
+            HoState::None => {}
+        }
+    }
+
+    if matches!(payload.n2_sm_info_type, Some(N2SmInfoType::HandoverReqAck)) {
+        return handle_ho_prepared(state, sm_context_ref, sm_context, payload).await;
     }
 
     if matches!(payload.n2_sm_info_type, Some(crate::models::N2SmInfoType::PduResSetupRsp)) {
@@ -1617,12 +1649,14 @@ pub async fn update_pdu_session(
                         n2_sm_info_type: None,
                         eps_bearer_info: None,
                         supported_features: None,
+                        ho_state: None,
                         session_ambr: sm_context.session_ambr.clone(),
                         cn_tunnel_info: None,
                         additional_cn_tunnel_info: None,
                         qos_flows_add_mod_list: None,
                         qos_flows_rel_list: None,
                         up_cnx_state: None,
+                        data_forwarding: None,
                     }));
                 }
                 NasMessageType::PduSessionModificationCommandReject => {
@@ -1638,12 +1672,14 @@ pub async fn update_pdu_session(
                         n2_sm_info_type: None,
                         eps_bearer_info: None,
                         supported_features: None,
+                        ho_state: None,
                         session_ambr: sm_context.session_ambr.clone(),
                         cn_tunnel_info: None,
                         additional_cn_tunnel_info: None,
                         qos_flows_add_mod_list: None,
                         qos_flows_rel_list: None,
                         up_cnx_state: None,
+                        data_forwarding: None,
                     }));
                 }
                 _ => {
@@ -1698,12 +1734,14 @@ async fn handle_ue_modification_request(
             n2_sm_info_type: None,
             eps_bearer_info: None,
             supported_features: None,
+            ho_state: None,
             session_ambr: sm_context.session_ambr.clone(),
             cn_tunnel_info: None,
             additional_cn_tunnel_info: None,
             qos_flows_add_mod_list: None,
             qos_flows_rel_list: None,
             up_cnx_state: None,
+            data_forwarding: None,
         }));
     }
 
@@ -1812,12 +1850,14 @@ async fn handle_ue_modification_request(
         n2_sm_info_type: None,
         eps_bearer_info: None,
         supported_features: None,
+        ho_state: None,
         session_ambr: sm_context.session_ambr.clone(),
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list,
         qos_flows_rel_list,
         up_cnx_state: None,
+        data_forwarding: None,
     }))
 }
 
@@ -1895,12 +1935,14 @@ async fn handle_ue_release_request(
         n2_sm_info_type: Some(N2SmInfoType::PduResRelCmd),
         eps_bearer_info: None,
         supported_features: None,
+        ho_state: None,
         session_ambr: None,
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
         qos_flows_rel_list: None,
         up_cnx_state: None,
+        data_forwarding: None,
     }))
 }
 
@@ -2023,12 +2065,14 @@ async fn handle_network_modification(
         n2_sm_info_type: None,
         eps_bearer_info: None,
         supported_features: None,
+        ho_state: None,
         session_ambr: updated_ambr,
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list,
         qos_flows_rel_list,
         up_cnx_state: None,
+        data_forwarding: None,
     }))
 }
 
@@ -2269,56 +2313,61 @@ pub async fn retrieve_pdu_session_by_supi(
     Ok(Json(SmContextSummary::from(sm_context)))
 }
 
-pub async fn handle_handover_required(
-    State(state): State<AppState>,
-    Path(sm_context_ref): Path<String>,
-    Json(payload): Json<HandoverRequiredData>,
-) -> Result<Json<HandoverRequiredResponse>, AppError> {
+async fn handle_ho_preparing(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
-    let sm_context = collection
-        .find_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     HandoverService::validate_handover_state(&sm_context.state)
         .map_err(AppError::ValidationError)?;
 
-    AmbrEnforcementService::log_ambr_enforcement(
-        &sm_context.supi,
+    tracing::info!(
+        "Handover preparing for SUPI: {}, PSI: {}, Target: {:?}",
+        sm_context.supi,
         sm_context.pdu_session_id,
-        &sm_context.session_ambr,
-        "N2-based handover preparation",
+        payload.target_id
     );
 
     if sm_context.ssc_mode == SscMode::Mode1 {
         if let Some(ref pdu_addr) = sm_context.pdu_address {
             tracing::info!(
-                "SSC Mode 1: IP address will be preserved during handover for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
+                "SSC Mode 1: IP preserved during handover for SUPI: {}, IPv4: {:?}",
                 sm_context.supi,
-                pdu_addr.ipv4_addr,
-                pdu_addr.ipv6_addr
+                pdu_addr.ipv4_addr
             );
         }
     }
 
-    tracing::info!(
-        "Handover required notification received for SUPI: {}, PDU Session ID: {}, SM Context: {}, SSC Mode: {}, Target: {:?}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        sm_context_ref,
-        sm_context.ssc_mode.as_str(),
-        payload.target_id.ran_node_id.gnb_id
-    );
+    let upf_ipv4 = sm_context.upf_tunnel_ipv4
+        .as_deref()
+        .or_else(|| sm_context.upf_address.as_deref())
+        .unwrap_or("127.0.0.1");
+    let upf_teid = sm_context.upf_teid.unwrap_or(0);
+
+    let cn_tunnel_info = TunnelInfo {
+        ipv4_addr: Some(upf_ipv4.to_string()),
+        ipv6_addr: None,
+        gtp_teid: format!("{:08x}", upf_teid),
+    };
+
+    let n2_transfer = crate::parsers::ngap_encoder::encode_pdu_session_resource_setup_request_transfer(
+        sm_context.session_ambr.as_ref().map(|a| a.downlink.parse::<u64>().unwrap_or(1000000)).unwrap_or(1000000),
+        sm_context.session_ambr.as_ref().map(|a| a.uplink.parse::<u64>().unwrap_or(1000000)).unwrap_or(1000000),
+        upf_teid,
+        upf_ipv4.parse().unwrap_or(std::net::Ipv4Addr::LOCALHOST),
+        sm_context.qos_flows.first().map(|f| f.qfi).unwrap_or(1),
+    ).map_err(|e| AppError::ValidationError(format!("Failed to encode NGAP transfer: {}", e)))?;
+
+    let n2_data = general_purpose::STANDARD.encode(&n2_transfer);
 
     collection
         .update_one(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::ModificationPending)
-                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "handover_state": mongodb::bson::to_bson(&HoState::Preparing)
                         .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
@@ -2328,74 +2377,46 @@ pub async fn handle_handover_required(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let cn_tunnel_info = if let Some(pfcp_session_id) = sm_context.pfcp_session_id {
-        let upf_ipv4 = std::env::var("UPF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let gtp_teid = format!("{:08x}", pfcp_session_id as u32);
-
-        Some(HandoverService::generate_cn_tunnel_info(&upf_ipv4, &gtp_teid))
-    } else {
-        None
-    };
-
-    tracing::info!(
-        "Prepared handover resources for SUPI: {}, CN Tunnel Info: {:?}",
-        sm_context.supi,
-        cn_tunnel_info
-    );
-
-    let response = HandoverRequiredResponse {
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
         n2_sm_info: Some(N2SmInfo {
-            content_id: "n2-ho-required-ack".to_string(),
+            content_id: "n2-handover-command".to_string(),
             n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::PduResSetupReq,
-                ngap_data: "base64_encoded_ho_required_ack".to_string(),
+                ngap_ie_type: NgapIeType::HandoverCmd,
+                ngap_data: n2_data,
             },
         }),
-        n2_sm_info_ext1: None,
+        n2_sm_info_type: Some(N2SmInfoType::HandoverCmd),
+        eps_bearer_info: None,
+        supported_features: None,
         ho_state: Some(HoState::Preparing),
-        cn_tunnel_info,
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: Some(cn_tunnel_info),
         additional_cn_tunnel_info: None,
-    };
-
-    tracing::info!(
-        "Handover required response prepared for SUPI: {}, HO State: {:?}",
-        sm_context.supi,
-        response.ho_state
-    );
-
-    Ok(Json(response))
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: payload.data_forwarding,
+    }))
 }
 
-pub async fn handle_handover_request_ack(
-    State(state): State<AppState>,
-    Path(sm_context_ref): Path<String>,
-    Json(payload): Json<HandoverRequestAckData>,
-) -> Result<Json<serde_json::Value>, AppError> {
+async fn handle_ho_prepared(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
-    let sm_context = collection
-        .find_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     HandoverService::validate_ho_state_for_request_ack(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
 
     tracing::info!(
-        "Handover request acknowledgment received for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        "Handover request ack for SUPI: {}, PSI: {}",
         sm_context.supi,
-        payload.pdu_session_id,
-        sm_context_ref
+        sm_context.pdu_session_id
     );
-
-    if payload.pdu_session_id != sm_context.pdu_session_id {
-        return Err(AppError::ValidationError(format!(
-            "PDU Session ID mismatch: expected {}, got {}",
-            sm_context.pdu_session_id,
-            payload.pdu_session_id
-        )));
-    }
 
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
@@ -2403,37 +2424,18 @@ pub async fn handle_handover_request_ack(
         "updated_at": mongodb::bson::DateTime::now()
     };
 
-    let allocated_resources = if let Some(ref n2_sm_info) = payload.n2_sm_info {
+    if let Some(ref n2_sm_info) = payload.n2_sm_info {
         match HandoverService::extract_allocated_handover_resources(&n2_sm_info.n2_info_content.ngap_data) {
             Ok(resources) => {
-                tracing::info!(
-                    "Handover resource allocation successful for SUPI: {}, Allocated QoS flows: {:?}, Failed QoS flows: {:?}",
-                    sm_context.supi,
-                    resources.allocated_qos_flow_ids,
-                    resources.failed_qos_flow_ids
-                );
-
                 let mapping_result = QosFlowMappingService::map_qos_flows_to_target(
                     &sm_context.qos_flows,
                     &resources.allocated_qos_flow_ids,
                     &resources.failed_qos_flow_ids,
                 );
 
-                tracing::info!(
-                    "QoS flow mapping status for SUPI: {}: {:?}, {}",
-                    sm_context.supi,
-                    mapping_result.mapping_status,
-                    QosFlowMappingService::get_qos_flow_summary(&mapping_result.allocated_flows)
-                );
-
                 if !mapping_result.mapping_status.is_acceptable() {
-                    tracing::error!(
-                        "QoS flow mapping failed for SUPI: {}, status: {:?}",
-                        sm_context.supi,
-                        mapping_result.mapping_status
-                    );
                     return Err(AppError::ValidationError(format!(
-                        "QoS flow mapping failed: {:?}. Critical flows could not be allocated at target",
+                        "QoS flow mapping failed: {:?}",
                         mapping_result.mapping_status
                     )));
                 }
@@ -2450,38 +2452,16 @@ pub async fn handle_handover_request_ack(
                         mongodb::bson::to_bson(&mapping_result.allocated_flows)
                             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     );
-                    tracing::info!(
-                        "Updated QoS flows for SUPI: {} to reflect allocated resources: {:?}",
-                        sm_context.supi,
-                        mapping_result.allocated_flows.iter().map(|qf| qf.qfi).collect::<Vec<_>>()
-                    );
                 }
-
-                if resources.security_activated {
-                    tracing::info!(
-                        "User plane security activated at target for SUPI: {}",
-                        sm_context.supi
-                    );
-                }
-
-                Some(resources)
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to extract allocated handover resources for SUPI: {}: {}, continuing without resource coordination",
-                    sm_context.supi,
-                    e
+                    "Failed to extract handover resources for SUPI: {}: {}",
+                    sm_context.supi, e
                 );
-                None
             }
         }
-    } else {
-        tracing::debug!(
-            "No N2 SM info provided in handover request ack for SUPI: {}, skipping resource extraction",
-            sm_context.supi
-        );
-        None
-    };
+    }
 
     collection
         .update_one(
@@ -2491,358 +2471,114 @@ pub async fn handle_handover_request_ack(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    tracing::info!(
-        "Handover state updated to Prepared for SUPI: {}, PDU Session ID: {}, Resources allocated: {}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        allocated_resources.is_some()
-    );
-
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "handoverState": "PREPARED",
-        "allocatedQosFlows": allocated_resources.as_ref().map(|r| &r.allocated_qos_flow_ids),
-        "failedQosFlows": allocated_resources.as_ref().map(|r| &r.failed_qos_flow_ids),
-        "securityActivated": allocated_resources.as_ref().map(|r| r.security_activated).unwrap_or(false)
-    })))
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: Some(HoState::Prepared),
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+    }))
 }
 
-pub async fn handle_handover_notify(
-    State(state): State<AppState>,
-    Path(sm_context_ref): Path<String>,
-    Json(payload): Json<HandoverNotifyData>,
-) -> Result<Json<serde_json::Value>, AppError> {
+async fn handle_ho_completed(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
-    let sm_context = collection
-        .find_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     HandoverService::validate_ho_state_for_notify(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
 
-    AmbrEnforcementService::log_ambr_enforcement(
-        &sm_context.supi,
-        sm_context.pdu_session_id,
-        &sm_context.session_ambr,
-        "N2-based handover completion",
-    );
-
     tracing::info!(
-        "Handover notify received for SUPI: {}, PDU Session ID: {}, SM Context: {}, HO State: {:?}",
+        "Handover completed for SUPI: {}, PSI: {}",
         sm_context.supi,
-        payload.pdu_session_id,
-        sm_context_ref,
-        payload.ho_state
+        sm_context.pdu_session_id
     );
-
-    if payload.pdu_session_id != sm_context.pdu_session_id {
-        return Err(AppError::ValidationError(format!(
-            "PDU Session ID mismatch: expected {}, got {}",
-            sm_context.pdu_session_id,
-            payload.pdu_session_id
-        )));
-    }
 
     let mut update_doc = doc! {
-        "handover_state": mongodb::bson::to_bson(&payload.ho_state)
+        "handover_state": mongodb::bson::to_bson(&HoState::Completed)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "state": mongodb::bson::to_bson(&SmContextState::Active)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
 
-    if matches!(payload.ho_state, HoState::Completed) {
-        if let Some(ref current_upf_address) = sm_context.upf_address {
-            let relocation_decision = state.upf_selection_service.evaluate_upf_relocation(
-                current_upf_address,
-                payload.ue_location.clone(),
-            ).await;
-
-            match relocation_decision {
-                Ok(decision) if decision.should_relocate => {
-                    tracing::info!(
-                        "UPF relocation required for SUPI: {}, Reason: {:?}, Current UPF: {}, Target UPF: {:?}",
-                        sm_context.supi,
-                        decision.reason,
-                        current_upf_address,
-                        decision.target_upf_address
-                    );
-
-                    if let Some(ref target_upf) = decision.target_upf_address {
-                        if let Some(ref inter_smf_service) = state.inter_smf_handover_service {
-                            if inter_smf_service.should_trigger_handover(Some(current_upf_address), target_upf) {
-                                tracing::info!(
-                                    "Inter-SMF handover required - Current UPF: {}, Target UPF: {} requires different SMF for SUPI: {}",
-                                    current_upf_address,
-                                    target_upf,
-                                    sm_context.supi
-                                );
-
-                                let target_smf_uri = format!("http://{}/nsmf-pdusession/v1", target_upf);
-                                let transfer_cause = TransferCause::InterSmfHandover;
-
-                                match inter_smf_service.initiate_handover(
-                                    &sm_context,
-                                    &target_smf_uri,
-                                    transfer_cause,
-                                    None,
-                                    None,
-                                ).await {
-                                    Ok(response) if response.accepted => {
-                                        tracing::info!(
-                                            "Inter-SMF handover successful for SUPI: {}, Target Context: {:?}",
-                                            sm_context.supi,
-                                            response.target_sm_context_ref
-                                        );
-                                        return Ok(Json(serde_json::json!({
-                                            "status": "smf_changed",
-                                            "target_smf": target_smf_uri,
-                                            "target_context_ref": response.target_sm_context_ref
-                                        })));
-                                    }
-                                    Ok(response) => {
-                                        tracing::warn!(
-                                            "Inter-SMF handover rejected for SUPI: {}, Cause: {:?}. Continuing with local UPF update.",
-                                            sm_context.supi,
-                                            response.cause
-                                        );
-                                        update_doc.insert("upf_address", target_upf.clone());
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Inter-SMF handover failed for SUPI: {}, Error: {}. Continuing with local UPF update.",
-                                            sm_context.supi,
-                                            e
-                                        );
-                                        update_doc.insert("upf_address", target_upf.clone());
-                                    }
-                                }
-                            } else {
-                                update_doc.insert("upf_address", target_upf.clone());
-                                tracing::info!(
-                                    "UPF relocation completed (no SMF change required): {} -> {} for SUPI: {}",
-                                    current_upf_address,
-                                    target_upf,
-                                    sm_context.supi
-                                );
-                            }
-                        } else {
-                            update_doc.insert("upf_address", target_upf.clone());
-                            tracing::info!(
-                                "UPF relocation completed: {} -> {} for SUPI: {} (inter-SMF handover not available)",
-                                current_upf_address,
-                                target_upf,
-                                sm_context.supi
-                            );
-                        }
-                    } else {
-                        let new_selection_result = state.upf_selection_service.select_upf(&crate::types::UpfSelectionCriteria {
-                            ue_location: payload.ue_location.clone(),
-                            s_nssai: sm_context.s_nssai.clone(),
-                            dnn: sm_context.dnn.clone(),
-                            current_upf_address: Some(current_upf_address.clone()),
-                        }).await;
-
-                        if let Ok(new_selection) = new_selection_result {
-                            if new_selection.relocation_required {
-                                update_doc.insert("upf_address", new_selection.selected_upf.address.clone());
-                                tracing::info!(
-                                    "UPF relocation completed via selection: {} -> {} for SUPI: {} (score: {})",
-                                    current_upf_address,
-                                    new_selection.selected_upf.address,
-                                    sm_context.supi,
-                                    new_selection.score
-                                );
-                            }
-                        } else {
-                            tracing::warn!("Failed to select new UPF during relocation for SUPI: {}", sm_context.supi);
-                        }
-                    }
-                }
-                Ok(_) => {
-                    tracing::debug!("No UPF relocation required for SUPI: {}", sm_context.supi);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to evaluate UPF relocation for SUPI: {}: {}", sm_context.supi, e);
-                }
-            }
-        }
-
-        if sm_context.ssc_mode == SscMode::Mode1 {
-            if let Some(ref existing_pdu_addr) = sm_context.pdu_address {
-                SscBehaviorService::validate_handover_ip_behavior(
-                    &sm_context.ssc_mode,
-                    existing_pdu_addr,
-                    None,
-                ).map_err(AppError::ValidationError)?;
-
-                tracing::info!(
-                    "SSC Mode 1 handover completed: IP address preserved for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
-                    sm_context.supi,
-                    existing_pdu_addr.ipv4_addr,
-                    existing_pdu_addr.ipv6_addr
-                );
-            }
-        } else if sm_context.ssc_mode == SscMode::Mode2 {
-            tracing::info!(
-                "SSC Mode 2 handover: Releasing old session and establishing new session for SUPI: {}, PDU Session ID: {}",
-                sm_context.supi,
-                sm_context.pdu_session_id
-            );
-
-            let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
-                .map_err(AppError::ValidationError)?;
-
-            let mut mutable_context = sm_context.clone();
-            let new_pdu_address = SscMode2Service::handle_mobility_event(
-                &mut mutable_context,
-                &state.db,
-                state.pfcp_client.as_ref(),
-                &dnn_config.ip_pool_name,
-            ).await.map_err(AppError::ValidationError)?;
-
-            tracing::info!(
-                "SSC Mode 2 handover completed: New address allocated for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
-                sm_context.supi,
-                new_pdu_address.ipv4_addr,
-                new_pdu_address.ipv6_addr
-            );
-
-            update_doc.insert(
-                "pdu_address",
-                mongodb::bson::to_bson(&new_pdu_address)
-                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-            );
-        } else if sm_context.ssc_mode == SscMode::Mode3 {
-            tracing::info!(
-                "SSC Mode 3 handover: Make-before-break for SUPI: {}, PDU Session ID: {}",
-                sm_context.supi,
-                sm_context.pdu_session_id
-            );
-
-            let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
-                .map_err(AppError::ValidationError)?;
-
-            let mut mutable_context = sm_context.clone();
-            let (new_pdu_address, _old_address) = SscMode3Service::handle_mobility_event(
-                &mut mutable_context,
-                &state.db,
-                state.pfcp_client.as_ref(),
-                &dnn_config.ip_pool_name,
-            ).await.map_err(AppError::ValidationError)?;
-
-            tracing::info!(
-                "SSC Mode 3 handover completed: New address allocated (make-before-break) for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
-                sm_context.supi,
-                new_pdu_address.ipv4_addr,
-                new_pdu_address.ipv6_addr
-            );
-
-            update_doc.insert(
-                "pdu_address",
-                mongodb::bson::to_bson(&new_pdu_address)
-                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-            );
-        }
-
+    if let Some(ref an_tunnel_info) = payload.an_tunnel_info {
         update_doc.insert(
-            "state",
-            mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+            "an_tunnel_info",
+            mongodb::bson::to_bson(an_tunnel_info)
                 .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
 
-        if let Some(ref an_tunnel_info) = payload.an_tunnel_info {
-            update_doc.insert(
-                "an_tunnel_info",
-                mongodb::bson::to_bson(an_tunnel_info)
-                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-            );
-
-            if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-                tracing::info!(
-                    "Updating PFCP session for SUPI: {}, PFCP Session ID: {}",
-                    sm_context.supi,
-                    pfcp_session_id
-                );
-
-                if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
-                    if let Ok(an_ipv4) = an_ipv4_str.parse() {
-                        if let Err(e) = PfcpSessionManager::modify_session_for_handover(
-                            pfcp_client,
-                            pfcp_session_id,
-                            an_ipv4,
-                            &an_tunnel_info.gtp_teid,
-                            sm_context.up_security_context.as_ref(),
-                        ).await {
-                            tracing::error!("Failed to modify PFCP session: {}", e);
-                        }
-                    } else {
-                        tracing::error!("Invalid AN IPv4 address: {}", an_ipv4_str);
+        if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+            if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
+                if let Ok(an_ipv4) = an_ipv4_str.parse() {
+                    if let Err(e) = PfcpSessionManager::modify_session_for_handover(
+                        pfcp_client,
+                        pfcp_session_id,
+                        an_ipv4,
+                        &an_tunnel_info.gtp_teid,
+                        sm_context.up_security_context.as_ref(),
+                    ).await {
+                        tracing::error!("Failed to modify PFCP session for handover: {}", e);
                     }
                 }
             }
         }
+    }
 
-        if let Some(ref ue_location) = payload.ue_location {
-            update_doc.insert(
-                "ue_location",
-                mongodb::bson::to_bson(ue_location)
-                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-            );
-        }
-
-        let updated_sm_context = collection
-            .find_one(doc! { "_id": &sm_context_ref })
-            .await
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
-
-        let continuity_check = QosFlowMappingService::check_qos_flow_continuity(
-            &sm_context.supi,
-            sm_context.pdu_session_id,
-            &sm_context.qos_flows,
-            &updated_sm_context.qos_flows,
-        );
-
-        if !continuity_check.continuity_status.is_acceptable() {
-            tracing::error!(
-                "QoS flow continuity check failed for SUPI: {}, PDU Session ID: {}, status: {:?}",
-                sm_context.supi,
-                sm_context.pdu_session_id,
-                continuity_check.continuity_status
-            );
-            return Err(AppError::ValidationError(format!(
-                "QoS flow continuity interrupted: {:?}. Missing flows: {:?}",
-                continuity_check.continuity_status,
-                continuity_check.missing_flows
-            )));
-        }
-
-        tracing::info!(
-            "QoS flow continuity maintained for SUPI: {}, PDU Session ID: {}: {}",
-            sm_context.supi,
-            sm_context.pdu_session_id,
-            QosFlowMappingService::get_qos_flow_summary(&updated_sm_context.qos_flows)
-        );
-
-        tracing::info!(
-            "Handover completed for SUPI: {}, PDU Session ID: {}, UE Location: {:?}",
-            sm_context.supi,
-            sm_context.pdu_session_id,
-            payload.ue_location
-        );
-    } else if matches!(payload.ho_state, HoState::Cancelled) {
+    if let Some(ref ue_location) = payload.ue_location {
         update_doc.insert(
-            "state",
-            mongodb::bson::to_bson(&crate::types::SmContextState::Active)
+            "ue_location",
+            mongodb::bson::to_bson(ue_location)
                 .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
+    }
 
-        tracing::info!(
-            "Handover cancelled for SUPI: {}, PDU Session ID: {}, reverting to Active state",
-            sm_context.supi,
-            sm_context.pdu_session_id
+    if sm_context.ssc_mode == SscMode::Mode2 {
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let new_pdu_address = SscMode2Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        update_doc.insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    } else if sm_context.ssc_mode == SscMode::Mode3 {
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let (new_pdu_address, _old_address) = SscMode3Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        update_doc.insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
     }
 
@@ -2854,59 +2590,48 @@ pub async fn handle_handover_notify(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    tracing::info!(
-        "Handover state updated for SUPI: {}, PDU Session ID: {}, Final HO State: {:?}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        payload.ho_state
-    );
-
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "handoverState": format!("{:?}", payload.ho_state).to_uppercase()
-    })))
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: Some(HoState::Completed),
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+    }))
 }
 
-pub async fn handle_handover_cancel(
-    State(state): State<AppState>,
-    Path(sm_context_ref): Path<String>,
-    Json(payload): Json<HandoverCancelData>,
-) -> Result<Json<serde_json::Value>, AppError> {
+async fn handle_ho_cancelled(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
-    let sm_context = collection
-        .find_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     HandoverService::validate_ho_state_for_cancel(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
 
     tracing::info!(
-        "Handover cancel received for SUPI: {}, PDU Session ID: {}, SM Context: {}, Cause: {:?}",
+        "Handover cancelled for SUPI: {}, PSI: {}",
         sm_context.supi,
-        payload.pdu_session_id,
-        sm_context_ref,
-        payload.cause
+        sm_context.pdu_session_id
     );
-
-    if payload.pdu_session_id != sm_context.pdu_session_id {
-        return Err(AppError::ValidationError(format!(
-            "PDU Session ID mismatch: expected {}, got {}",
-            sm_context.pdu_session_id,
-            payload.pdu_session_id
-        )));
-    }
 
     collection
         .update_one(
             doc! { "_id": &sm_context_ref },
             doc! {
                 "$set": {
-                    "state": mongodb::bson::to_bson(&crate::types::SmContextState::Active)
-                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "handover_state": mongodb::bson::to_bson(&HoState::Cancelled)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "state": mongodb::bson::to_bson(&SmContextState::Active)
                         .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
                     "updated_at": mongodb::bson::DateTime::now()
                 }
@@ -2915,19 +2640,24 @@ pub async fn handle_handover_cancel(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    tracing::info!(
-        "Handover cancelled for SUPI: {}, PDU Session ID: {}, reverting to Active state, Cause: {:?}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        payload.cause
-    );
-
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "handoverState": "CANCELLED",
-        "cause": format!("{:?}", payload.cause).to_uppercase()
-    })))
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: Some(HoState::Cancelled),
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+    }))
 }
+
 
 pub async fn receive_context_transfer(
     State(state): State<AppState>,
