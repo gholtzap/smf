@@ -1600,7 +1600,7 @@ pub async fn update_pdu_session(
                 return handle_ho_completed(state, sm_context_ref, sm_context, payload).await;
             }
             HoState::Cancelled => {
-                return handle_ho_cancelled(state, sm_context_ref, sm_context).await;
+                return cancel_handover_internal(state, sm_context_ref, sm_context).await;
             }
             HoState::None => {}
         }
@@ -2866,7 +2866,37 @@ async fn handle_ho_completed(
     }))
 }
 
-async fn handle_ho_cancelled(
+pub async fn handle_handover_cancel(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<crate::types::HandoverCancelData>,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    if payload.pdu_session_id != sm_context.pdu_session_id {
+        return Err(AppError::ValidationError(format!(
+            "PDU Session ID mismatch: request={}, context={}",
+            payload.pdu_session_id, sm_context.pdu_session_id
+        )));
+    }
+
+    tracing::info!(
+        "Handover cancel (dedicated) for SUPI: {}, PSI: {}, cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.cause
+    );
+
+    cancel_handover_internal(state, sm_context_ref, sm_context).await
+}
+
+async fn cancel_handover_internal(
     state: AppState,
     sm_context_ref: String,
     sm_context: SmContext,
@@ -2876,24 +2906,56 @@ async fn handle_ho_cancelled(
     HandoverService::validate_ho_state_for_cancel(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
 
-    tracing::info!(
-        "Handover cancelled for SUPI: {}, PSI: {}",
-        sm_context.supi,
-        sm_context.pdu_session_id
-    );
+    let source_tunnel = sm_context.source_an_tunnel_info.as_ref()
+        .or(sm_context.an_tunnel_info.as_ref());
+
+    if matches!(sm_context.handover_state, Some(HoState::Prepared)) {
+        if let (Some(ref pfcp_client), Some(pfcp_session_id), Some(tunnel)) =
+            (&state.pfcp_client, sm_context.pfcp_session_id, source_tunnel)
+        {
+            if let Some(ref an_ipv4_str) = tunnel.ipv4_addr {
+                let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+                    AppError::ValidationError(format!(
+                        "Invalid source AN tunnel IPv4 '{}': {}", an_ipv4_str, e
+                    ))
+                })?;
+                if let Err(e) = PfcpSessionManager::reactivate_downlink(
+                    pfcp_client,
+                    pfcp_session_id,
+                    an_ipv4,
+                    &tunnel.gtp_teid,
+                ).await {
+                    tracing::error!(
+                        "Failed to reactivate DL after handover cancel for SUPI: {}, PSI: {}: {}",
+                        sm_context.supi, sm_context.pdu_session_id, e
+                    );
+                }
+            }
+        }
+    }
+
+    let mut update_doc = doc! {
+        "handover_state": mongodb::bson::to_bson(&HoState::Cancelled)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "state": mongodb::bson::to_bson(&sm_context.state)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "updated_at": mongodb::bson::DateTime::now()
+    };
+
+    if let Some(ref source_tunnel_info) = sm_context.source_an_tunnel_info {
+        update_doc.insert(
+            "an_tunnel_info",
+            mongodb::bson::to_bson(source_tunnel_info)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
+
+    update_doc.insert("source_an_tunnel_info", mongodb::bson::Bson::Null);
 
     collection
         .update_one(
             doc! { "_id": &sm_context_ref },
-            doc! {
-                "$set": {
-                    "handover_state": mongodb::bson::to_bson(&HoState::Cancelled)
-                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-                    "state": mongodb::bson::to_bson(&SmContextState::Active)
-                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-                    "updated_at": mongodb::bson::DateTime::now()
-                }
-            }
+            doc! { "$set": update_doc }
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
