@@ -2745,27 +2745,36 @@ async fn handle_ho_completed(
         "updated_at": mongodb::bson::DateTime::now()
     };
 
-    if let Some(ref an_tunnel_info) = payload.an_tunnel_info {
-        update_doc.insert(
-            "an_tunnel_info",
-            mongodb::bson::to_bson(an_tunnel_info)
-                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-        );
+    let an_tunnel_info = payload.an_tunnel_info.as_ref()
+        .or(sm_context.an_tunnel_info.as_ref());
+
+    if let Some(an_tunnel_info) = an_tunnel_info {
+        if payload.an_tunnel_info.is_some() {
+            update_doc.insert(
+                "an_tunnel_info",
+                mongodb::bson::to_bson(an_tunnel_info)
+                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+            );
+        }
 
         if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
             if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
-                if let Ok(an_ipv4) = an_ipv4_str.parse() {
-                    if let Err(e) = PfcpSessionManager::modify_session_for_handover(
-                        pfcp_client,
-                        pfcp_session_id,
-                        an_ipv4,
-                        &an_tunnel_info.gtp_teid,
-                        sm_context.up_security_context.as_ref(),
-                        true,
-                    ).await {
-                        tracing::error!("Failed to modify PFCP session for handover: {}", e);
-                    }
-                }
+                let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+                    AppError::ValidationError(format!("Invalid AN tunnel IPv4 address '{}': {}", an_ipv4_str, e))
+                })?;
+                PfcpSessionManager::modify_session_for_handover(
+                    pfcp_client,
+                    pfcp_session_id,
+                    an_ipv4,
+                    &an_tunnel_info.gtp_teid,
+                    sm_context.up_security_context.as_ref(),
+                    true,
+                ).await.map_err(|e| {
+                    AppError::ValidationError(format!(
+                        "Failed to update PFCP session for handover completion SUPI: {}, PSI: {}: {}",
+                        sm_context.supi, sm_context.pdu_session_id, e
+                    ))
+                })?;
             }
         }
     }
@@ -2941,4 +2950,164 @@ pub async fn receive_context_transfer(
     );
 
     Ok(Json(response))
+}
+
+pub async fn handle_handover_notify(
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<crate::types::HandoverNotifyData>,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    if payload.pdu_session_id != sm_context.pdu_session_id {
+        return Err(AppError::ValidationError(format!(
+            "PDU Session ID mismatch: request={}, context={}",
+            payload.pdu_session_id, sm_context.pdu_session_id
+        )));
+    }
+
+    HandoverService::validate_ho_state_for_notify(&sm_context.handover_state)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "Handover notify for SUPI: {}, PSI: {}, hoState: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.ho_state
+    );
+
+    let an_tunnel_info = payload.an_tunnel_info.as_ref()
+        .or(sm_context.an_tunnel_info.as_ref())
+        .ok_or_else(|| AppError::ValidationError(
+            "No AN tunnel info available: not in request and not stored from Prepared phase".to_string()
+        ))?;
+
+    let mut update_doc = doc! {
+        "handover_state": mongodb::bson::to_bson(&HoState::Completed)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "state": mongodb::bson::to_bson(&SmContextState::Active)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "updated_at": mongodb::bson::DateTime::now()
+    };
+
+    if payload.an_tunnel_info.is_some() {
+        update_doc.insert(
+            "an_tunnel_info",
+            mongodb::bson::to_bson(an_tunnel_info)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
+
+    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
+            let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+                AppError::ValidationError(format!("Invalid AN tunnel IPv4 address '{}': {}", an_ipv4_str, e))
+            })?;
+            PfcpSessionManager::modify_session_for_handover(
+                pfcp_client,
+                pfcp_session_id,
+                an_ipv4,
+                &an_tunnel_info.gtp_teid,
+                sm_context.up_security_context.as_ref(),
+                true,
+            ).await.map_err(|e| {
+                AppError::ValidationError(format!(
+                    "Failed to update PFCP session for handover completion SUPI: {}, PSI: {}: {}",
+                    sm_context.supi, sm_context.pdu_session_id, e
+                ))
+            })?;
+        } else {
+            return Err(AppError::ValidationError(
+                "AN tunnel info missing IPv4 address for PFCP update".to_string()
+            ));
+        }
+    }
+
+    if let Some(ref ue_location) = payload.ue_location {
+        update_doc.insert(
+            "ue_location",
+            mongodb::bson::to_bson(ue_location)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
+
+    if sm_context.ssc_mode == SscMode::Mode2 {
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let new_pdu_address = SscMode2Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        update_doc.insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    } else if sm_context.ssc_mode == SscMode::Mode3 {
+        let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
+            .map_err(AppError::ValidationError)?;
+
+        let mut mutable_context = sm_context.clone();
+        let (new_pdu_address, _old_address) = SscMode3Service::handle_mobility_event(
+            &mut mutable_context,
+            &state.db,
+            state.pfcp_client.as_ref(),
+            &dnn_config.ip_pool_name,
+        ).await.map_err(AppError::ValidationError)?;
+
+        update_doc.insert(
+            "pdu_address",
+            mongodb::bson::to_bson(&new_pdu_address)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &sm_context_ref },
+            doc! { "$set": update_doc }
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::EventType::UpPathChange,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        Some(sm_context_ref.clone()),
+        None,
+    ).await;
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: Some(HoState::Completed),
+        session_ambr: sm_context.session_ambr.clone(),
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+    }))
 }
