@@ -2478,6 +2478,8 @@ async fn handle_ho_prepared(
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "source_an_tunnel_info": mongodb::bson::to_bson(&sm_context.an_tunnel_info)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "an_tunnel_info": mongodb::bson::to_bson(&resources.target_tunnel_info)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
@@ -2642,6 +2644,8 @@ pub async fn handle_handover_request_ack(
 
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "source_an_tunnel_info": mongodb::bson::to_bson(&sm_context.an_tunnel_info)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "an_tunnel_info": mongodb::bson::to_bson(&resources.target_tunnel_info)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,

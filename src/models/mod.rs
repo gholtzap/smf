@@ -254,6 +254,8 @@ pub struct SmContext {
     pub qos_rules: Vec<QosRule>,
     pub mtu: Option<u16>,
     pub an_tunnel_info: Option<TunnelInfo>,
+    #[serde(default)]
+    pub source_an_tunnel_info: Option<TunnelInfo>,
     pub ue_location: Option<UserLocation>,
     pub handover_state: Option<HoState>,
     pub is_emergency: bool,
@@ -299,6 +301,7 @@ impl SmContext {
             qos_rules: vec![QosRule::new_default(1, 1)],
             mtu: None,
             an_tunnel_info: None,
+            source_an_tunnel_info: None,
             ue_location: create_data.ue_location.clone(),
             handover_state: None,
             is_emergency,

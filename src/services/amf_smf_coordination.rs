@@ -254,6 +254,7 @@ mod tests {
             qos_rules: vec![],
             mtu: Some(1500),
             an_tunnel_info: None,
+            source_an_tunnel_info: None,
             ue_location: None,
             handover_state: None,
             is_emergency: false,

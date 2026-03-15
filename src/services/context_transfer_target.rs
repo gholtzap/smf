@@ -183,6 +183,7 @@ impl ContextTransferTarget {
             qos_rules: context_data.qos_rules.clone(),
             mtu: context_data.mtu,
             an_tunnel_info: context_data.an_tunnel_info.clone(),
+            source_an_tunnel_info: None,
             ue_location: context_data.ue_location.clone(),
             handover_state: context_data.handover_state.clone(),
             is_emergency: context_data.is_emergency,

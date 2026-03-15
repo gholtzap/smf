@@ -95,9 +95,11 @@ pub struct HandoverCancelData {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum HandoverCancelCause {
     HoTargetNotAllowed,
-    HoTargetBecomingRich,
+    HoFailureInTarget5gcNgranNode,
     HoTargetNotReachable,
     HoFailureInTargetSystem,
+    TngrelocoverallExpiry,
+    TngrelocprepExpiry,
     HoCancelled,
 }
 

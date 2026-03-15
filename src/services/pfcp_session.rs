@@ -490,6 +490,93 @@ impl PfcpSessionManager {
         }
     }
 
+    pub async fn reactivate_downlink(
+        pfcp_client: &PfcpClient,
+        seid: u64,
+        an_ipv4: Ipv4Addr,
+        an_teid: &str,
+    ) -> Result<PfcpSessionModificationResponse> {
+        let teid = u32::from_str_radix(an_teid, 16)
+            .map_err(|e| anyhow!("Invalid TEID format: {}", e))?;
+
+        let update_far = UpdateFar {
+            far_id: 2,
+            apply_action: Some(ApplyAction {
+                drop: false,
+                forw: true,
+                buff: false,
+                nocp: false,
+                dupl: false,
+            }),
+            update_forwarding_parameters: Some(UpdateForwardingParameters {
+                destination_interface: Some(DestinationInterface::Access),
+                network_instance: Some("internet".to_string()),
+                redirect_information: None,
+                outer_header_creation: Some(OuterHeaderCreation {
+                    outer_header_creation_description: OuterHeaderCreationDescription::GtpUUdpIpv4,
+                    teid: Some(teid),
+                    ipv4_address: Some(an_ipv4),
+                    ipv6_address: None,
+                    port_number: None,
+                    ctag: None,
+                    stag: None,
+                }),
+                transport_level_marking: None,
+                forwarding_policy: None,
+                header_enrichment: None,
+                traffic_endpoint_id: None,
+                proxying: None,
+            }),
+            update_duplicating_parameters: None,
+            bar_id: None,
+        };
+
+        let request = PfcpSessionModificationRequest {
+            f_seid: None,
+            remove_pdr: None,
+            remove_far: None,
+            remove_qer: None,
+            remove_urr: None,
+            create_pdr: None,
+            create_far: None,
+            create_qer: None,
+            create_urr: None,
+            update_pdr: None,
+            update_far: Some(vec![update_far]),
+            update_qer: None,
+            update_urr: None,
+            query_urr: None,
+            pfcp_session_retention_information: None,
+            user_plane_inactivity_timer: Some(300),
+            up_security_parameters: None,
+            send_end_marker: None,
+        };
+
+        pfcp_client.send_session_modification_request(seid, &request).await?;
+
+        info!(
+            "Sent PFCP DL reactivation (FORW) for SEID: {}, AN: {}, TEID: {}",
+            seid, an_ipv4, an_teid
+        );
+
+        let response = pfcp_client
+            .receive_message_with_timeout(std::time::Duration::from_secs(5))
+            .await?;
+
+        let modification_response = PfcpClientInner::decode_session_modification_response(&response.payload)?;
+
+        match modification_response.cause {
+            PfcpCause::RequestAccepted => {
+                info!("PFCP DL reactivated successfully for SEID: {}", seid);
+                Ok(modification_response)
+            }
+            _ => {
+                warn!("PFCP DL reactivation failed: {:?}", modification_response.cause);
+                Err(anyhow!("PFCP DL reactivation failed: {:?}", modification_response.cause))
+            }
+        }
+    }
+
     pub async fn delete_session(
         pfcp_client: &PfcpClient,
         seid: u64,
