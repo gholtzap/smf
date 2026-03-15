@@ -48,6 +48,12 @@ pub struct PduSessionCreateData {
     pub always_on_requested: Option<bool>,
     pub ssc_mode: Option<String>,
     pub pdu_session_type: Option<PduSessionType>,
+    pub ho_state: Option<HoState>,
+    pub sm_context_ref: Option<String>,
+    pub smf_uri: Option<String>,
+    #[serde(default)]
+    pub smf_transfer_ind: Option<bool>,
+    pub target_id: Option<TargetId>,
     pub source_sm_context: Option<SmContextData>,
     pub source_smf_id: Option<String>,
     pub transfer_cause: Option<TransferCause>,
@@ -166,6 +172,8 @@ pub struct PduSessionCreatedData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n2_sm_info: Option<String>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ho_state: Option<HoState>,
     pub sm_context_ref: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upf_tunnel_info: Option<UpfTunnelInfo>,
