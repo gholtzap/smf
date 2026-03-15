@@ -83,10 +83,46 @@ impl SmContextCreateError {
         }
     }
 
+    pub fn from_app_error_with_reject(err: &AppError, pdu_session_id: u8) -> Self {
+        use base64::{Engine as _, engine::general_purpose};
+        use crate::types::nas::{NasParser, GsmCause};
+
+        let cause = match err {
+            AppError::ValidationError(msg) => {
+                if msg.contains("DNN") || msg.contains("dnn") {
+                    GsmCause::MissingOrUnknownDnn
+                } else if msg.contains("PDU Session already exists") {
+                    GsmCause::InvalidPduSessionIdentity
+                } else if msg.contains("IP allocation") {
+                    GsmCause::InsufficientResources
+                } else if msg.contains("SSC") || msg.contains("ssc") {
+                    GsmCause::NotSupportedSscMode
+                } else if msg.contains("slice") || msg.contains("S-NSSAI") {
+                    GsmCause::InsufficientResourcesForSlice
+                } else {
+                    GsmCause::RequestRejectedUnspecified
+                }
+            }
+            AppError::DatabaseError(_) => GsmCause::InsufficientResources,
+            AppError::InternalError(_) => GsmCause::NetworkFailure,
+            AppError::NotFound(_) => GsmCause::RequestRejectedUnspecified,
+        };
+
+        let reject_msg = NasParser::build_pdu_session_establishment_reject(pdu_session_id, 0, cause);
+        let encoded = general_purpose::STANDARD.encode(&reject_msg);
+
+        Self {
+            error: err.to_problem_details(),
+            n1_sm_msg: Some(RefToBinaryData { content_id: encoded }),
+            n2_sm_info: None,
+            recovery_time: None,
+        }
+    }
+
     pub fn into_response(self, status: StatusCode) -> Response {
         (
             status,
-            [(header::CONTENT_TYPE, "application/json")],
+            [(header::CONTENT_TYPE, "application/problem+json")],
             Json(self),
         ).into_response()
     }

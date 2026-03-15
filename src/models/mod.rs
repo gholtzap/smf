@@ -267,6 +267,8 @@ pub struct SmContext {
     pub packet_filters: Vec<PacketFilter>,
     pub qos_rules: Vec<QosRule>,
     pub mtu: Option<u16>,
+    pub an_type: AnType,
+    pub rat_type: Option<RatType>,
     pub an_tunnel_info: Option<TunnelInfo>,
     #[serde(default)]
     pub source_an_tunnel_info: Option<TunnelInfo>,
@@ -320,6 +322,8 @@ impl SmContext {
             packet_filters: vec![],
             qos_rules: vec![QosRule::new_default(1, 1)],
             mtu: None,
+            an_type: create_data.an_type.clone(),
+            rat_type: create_data.rat_type.clone(),
             an_tunnel_info: None,
             source_an_tunnel_info: None,
             ue_location: create_data.ue_location.clone(),

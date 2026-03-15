@@ -31,9 +31,10 @@ pub async fn create_pdu_session(
     State(state): State<AppState>,
     Json(payload): Json<PduSessionCreateData>,
 ) -> Result<Response, Response> {
+    let pdu_session_id = payload.pdu_session_id;
     create_pdu_session_inner(state, payload).await.map_err(|err| {
         let status = err.status();
-        SmContextCreateError::from_app_error(&err).into_response(status)
+        SmContextCreateError::from_app_error_with_reject(&err, pdu_session_id).into_response(status)
     })
 }
 
@@ -642,15 +643,19 @@ async fn create_pdu_session_inner(
             AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
         })?;
 
-        if let Some(ue_ipv4_addr) = ue_ipv4 {
-            match PfcpSessionManager::establish_session(
-                pfcp_client,
-                seid,
-                ue_ipv4_addr,
-                upf_ipv4,
-                &sm_context.qos_flows,
-                sm_context.up_security_context.as_ref(),
-            ).await {
+        let ue_ipv6: Option<std::net::Ipv6Addr> = ipv6_addr.as_ref().and_then(|prefix| {
+            prefix.split('/').next().and_then(|s| s.parse().ok())
+        });
+
+        match PfcpSessionManager::establish_session(
+            pfcp_client,
+            seid,
+            ue_ipv4,
+            ue_ipv6,
+            upf_ipv4,
+            &sm_context.qos_flows,
+            sm_context.up_security_context.as_ref(),
+        ).await {
             Ok(pfcp_response) => {
                 sm_context.pfcp_session_id = Some(seid);
                 sm_context.state = crate::types::SmContextState::Active;
@@ -686,16 +691,12 @@ async fn create_pdu_session_inner(
                 }
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to establish PFCP session for SUPI: {}: {}, State remains: ActivePending",
-                    payload.supi,
-                    e
-                );
+                IpamService::release_ip(&state.db, &sm_context.id).await.ok();
+                return Err(AppError::InternalError(format!(
+                    "PFCP session establishment failed for SUPI {}: {}",
+                    payload.supi, e
+                )));
             }
-        }
-        } else {
-            sm_context.state = crate::types::SmContextState::Active;
-            tracing::debug!("IPv6-only PDU session, PFCP IPv6 support pending, State: Active");
         }
     } else {
         sm_context.state = crate::types::SmContextState::Active;
@@ -1074,6 +1075,8 @@ async fn handle_inter_smf_handover_create(
         packet_filters: vec![],
         qos_rules: vec![crate::types::QosRule::new_default(1, 1)],
         mtu: None,
+        an_type: payload.an_type.clone(),
+        rat_type: payload.rat_type.clone(),
         an_tunnel_info: None,
         source_an_tunnel_info: None,
         ue_location: payload.ue_location.clone(),
@@ -1109,11 +1112,16 @@ async fn handle_inter_smf_handover_create(
             .and_then(|addr| addr.ipv4_addr.as_ref())
             .and_then(|ip| ip.parse::<std::net::Ipv4Addr>().ok());
 
-        if let Some(ue_ipv4_addr) = ue_ipv4 {
+        {
+            let ue_ipv6: Option<std::net::Ipv6Addr> = sm_context.pdu_address.as_ref()
+                .and_then(|addr| addr.ipv6_addr.as_ref())
+                .and_then(|prefix| prefix.split('/').next().and_then(|s| s.parse().ok()));
+
             match PfcpSessionManager::establish_session(
                 pfcp_client,
                 seid,
-                ue_ipv4_addr,
+                ue_ipv4,
+                ue_ipv6,
                 upf_ipv4,
                 &sm_context.qos_flows,
                 sm_context.up_security_context.as_ref(),

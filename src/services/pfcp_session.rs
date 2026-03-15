@@ -63,11 +63,15 @@ impl PfcpSessionManager {
     pub async fn establish_session(
         pfcp_client: &PfcpClient,
         seid: u64,
-        ue_ipv4: Ipv4Addr,
+        ue_ipv4: Option<Ipv4Addr>,
+        ue_ipv6: Option<std::net::Ipv6Addr>,
         upf_ipv4: Ipv4Addr,
         qos_flows: &[QosFlow],
         up_security: Option<&UpSecurityContext>,
     ) -> Result<PfcpSessionEstablishmentResponse> {
+        if ue_ipv4.is_none() && ue_ipv6.is_none() {
+            return Err(anyhow!("At least one of UE IPv4 or IPv6 address is required"));
+        }
         let node_id = NodeId {
             node_id_type: NodeIdType::Ipv4Address,
             node_id_value: pfcp_client.local_address()?.ip().to_string(),
@@ -102,9 +106,9 @@ impl PfcpSessionManager {
                 }),
                 network_instance: Some("internet".to_string()),
                 ue_ip_address: Some(UeIpAddress {
-                    ipv4_address: Some(ue_ipv4),
-                    ipv6_address: None,
-                    ipv6_prefix_length: None,
+                    ipv4_address: ue_ipv4,
+                    ipv6_address: ue_ipv6,
+                    ipv6_prefix_length: if ue_ipv6.is_some() { Some(64) } else { None },
                     is_destination: false,
                     is_source: true,
                 }),
@@ -134,9 +138,9 @@ impl PfcpSessionManager {
                 local_f_teid: None,
                 network_instance: Some("internet".to_string()),
                 ue_ip_address: Some(UeIpAddress {
-                    ipv4_address: Some(ue_ipv4),
-                    ipv6_address: None,
-                    ipv6_prefix_length: None,
+                    ipv4_address: ue_ipv4,
+                    ipv6_address: ue_ipv6,
+                    ipv6_prefix_length: if ue_ipv6.is_some() { Some(64) } else { None },
                     is_destination: true,
                     is_source: false,
                 }),
