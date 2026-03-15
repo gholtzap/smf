@@ -71,6 +71,7 @@ pub struct HandoverRequestAckData {
     pub n2_sm_info: Option<N2SmInfo>,
     pub pdu_session_id: u8,
     pub target_to_source_data: Option<RefToBinaryData>,
+    pub data_forwarding: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
