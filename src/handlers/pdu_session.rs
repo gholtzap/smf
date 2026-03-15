@@ -1297,6 +1297,7 @@ async fn handle_n2_setup_response(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -1600,6 +1601,7 @@ async fn handle_path_switch(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     };
 
     tracing::info!(
@@ -1679,6 +1681,7 @@ async fn handle_up_cnx_state_change(
                 qos_flows_rel_list: None,
                 up_cnx_state: Some(UpCnxState::Deactivated),
                 data_forwarding: None,
+                cause: None,
             }))
         }
 
@@ -1774,6 +1777,55 @@ async fn handle_up_cnx_state_change(
                 qos_flows_rel_list: None,
                 up_cnx_state: Some(UpCnxState::Activating),
                 data_forwarding: None,
+                cause: None,
+            }))
+        }
+
+        UpCnxState::Suspended => {
+            tracing::info!(
+                "upCnxState SUSPENDED for SUPI: {}, PDU Session ID: {} - UE context suspended",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+                if let Err(e) = PfcpSessionManager::deactivate_downlink(pfcp_client, seid).await {
+                    tracing::error!(
+                        "Failed to deactivate DL for SUPI: {}, SEID: {}: {}",
+                        sm_context.supi, seid, e
+                    );
+                }
+            }
+
+            collection
+                .update_one(
+                    doc! { "_id": &sm_context_ref },
+                    doc! {
+                        "$set": {
+                            "an_tunnel_info": mongodb::bson::Bson::Null,
+                            "updated_at": mongodb::bson::DateTime::now()
+                        }
+                    }
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            Ok(Json(PduSessionUpdatedData {
+                n1_sm_info_to_ue: None,
+                n1_sm_msg: None,
+                n2_sm_info: None,
+                n2_sm_info_type: None,
+                eps_bearer_info: None,
+                supported_features: None,
+                ho_state: None,
+                session_ambr: sm_context.session_ambr.clone(),
+                cn_tunnel_info: None,
+                additional_cn_tunnel_info: None,
+                qos_flows_add_mod_list: None,
+                qos_flows_rel_list: None,
+                up_cnx_state: Some(UpCnxState::Suspended),
+                data_forwarding: None,
+                cause: None,
             }))
         }
 
@@ -1802,7 +1854,14 @@ pub async fn update_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
-    if HandoverService::is_path_switch_request(&payload.n2_sm_info_type) {
+    persist_serving_nf_updates(&collection, &sm_context_ref, &payload).await?;
+
+    if payload.release == Some(true) {
+        return handle_amf_initiated_release(state, sm_context_ref, sm_context, &payload).await;
+    }
+
+    if HandoverService::is_path_switch_request(&payload.n2_sm_info_type)
+        || payload.to_be_switched == Some(true) {
         return handle_path_switch(state, sm_context_ref, sm_context, payload).await;
     }
 
@@ -1828,8 +1887,16 @@ pub async fn update_pdu_session(
         return handle_ho_prepared(state, sm_context_ref, sm_context, payload).await;
     }
 
-    if matches!(payload.n2_sm_info_type, Some(crate::models::N2SmInfoType::PduResSetupRsp)) {
+    if matches!(payload.n2_sm_info_type, Some(N2SmInfoType::PduResSetupRsp)) {
         return handle_n2_setup_response(state, sm_context_ref, sm_context, payload).await;
+    }
+
+    if matches!(payload.n2_sm_info_type, Some(N2SmInfoType::PduResSetupFail)) {
+        return handle_n2_setup_failure(state, sm_context_ref, sm_context, payload).await;
+    }
+
+    if matches!(payload.n2_sm_info_type, Some(N2SmInfoType::PduResRelRsp)) {
+        return handle_n2_release_response(state, sm_context_ref, sm_context).await;
     }
 
     if let Some(ref up_cnx_state) = payload.up_cnx_state {
@@ -1856,12 +1923,12 @@ pub async fn update_pdu_session(
                         state, sm_context_ref, sm_context, &n1_data,
                     ).await;
                 }
+                NasMessageType::PduSessionReleaseComplete => {
+                    return handle_ue_release_complete(
+                        state, sm_context_ref, sm_context,
+                    ).await;
+                }
                 NasMessageType::PduSessionModificationComplete => {
-                    tracing::info!(
-                        "UE confirmed PDU Session Modification for SUPI: {}, PSI: {}",
-                        sm_context.supi,
-                        sm_context.pdu_session_id
-                    );
                     return Ok(Json(PduSessionUpdatedData {
                         n1_sm_info_to_ue: None,
                         n1_sm_msg: None,
@@ -1877,6 +1944,7 @@ pub async fn update_pdu_session(
                         qos_flows_rel_list: None,
                         up_cnx_state: None,
                         data_forwarding: None,
+                        cause: None,
                     }));
                 }
                 NasMessageType::PduSessionModificationCommandReject => {
@@ -1900,6 +1968,7 @@ pub async fn update_pdu_session(
                         qos_flows_rel_list: None,
                         up_cnx_state: None,
                         data_forwarding: None,
+                        cause: None,
                     }));
                 }
                 _ => {
@@ -1918,6 +1987,301 @@ pub async fn update_pdu_session(
     }
 
     handle_network_modification(state, sm_context_ref, sm_context, payload).await
+}
+
+async fn persist_serving_nf_updates(
+    collection: &Collection<SmContext>,
+    sm_context_ref: &str,
+    payload: &PduSessionUpdateData,
+) -> Result<(), AppError> {
+    let mut update_doc = doc! {};
+    let mut has_updates = false;
+
+    if let Some(ref nf_id) = payload.serving_nf_id {
+        update_doc.insert("serving_nf_id", nf_id);
+        has_updates = true;
+    }
+    if let Some(ref uri) = payload.sm_context_status_uri {
+        update_doc.insert("sm_context_status_uri", uri);
+        has_updates = true;
+    }
+    if let Some(ref loc) = payload.ue_location {
+        update_doc.insert(
+            "ue_location",
+            mongodb::bson::to_bson(loc)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        has_updates = true;
+    }
+
+    if has_updates {
+        update_doc.insert("updated_at", mongodb::bson::DateTime::now());
+        collection
+            .update_one(doc! { "_id": sm_context_ref }, doc! { "$set": update_doc })
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+    Ok(())
+}
+
+async fn handle_amf_initiated_release(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    payload: &PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    tracing::info!(
+        "AMF-initiated release for SUPI: {}, PSI: {}, cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.cause
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "Failed to delete PFCP session for SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
+
+    if let Some(ref status_uri) = sm_context.sm_context_status_uri {
+        let notification = SmContextStatusNotification {
+            status_info: SmContextStatusInfo {
+                resource_status: ResourceStatus::Released,
+                cause: payload.cause.as_ref().map(|c| format!("{:?}", c)),
+            },
+        };
+        let client = reqwest::Client::new();
+        let _ = client.post(status_uri).json(&notification).send().await;
+    }
+
+    collection
+        .delete_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let n1_release = NasParser::build_pdu_session_release_command(
+        sm_context.pdu_session_id,
+        0,
+        GsmCause::RegularDeactivation,
+    );
+    let encoded_n1 = general_purpose::STANDARD.encode(&n1_release);
+
+    let n2_encoded = build_n2_release_command_transfer(
+        &sm_context.qos_flows,
+    )?;
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded_n1 }),
+        n1_sm_msg: None,
+        n2_sm_info: Some(N2SmInfo {
+            content_id: "n2-pdu-session-resource-release-command-transfer".to_string(),
+            n2_info_content: N2InfoContent {
+                ngap_ie_type: NgapIeType::PduResRelCmd,
+                ngap_data: n2_encoded,
+            },
+        }),
+        n2_sm_info_type: Some(N2SmInfoType::PduResRelCmd),
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: None,
+        session_ambr: None,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: Some(UpCnxState::Deactivated),
+        data_forwarding: None,
+        cause: payload.cause.clone(),
+    }))
+}
+
+async fn handle_n2_setup_failure(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+    _payload: PduSessionUpdateData,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    tracing::warn!(
+        "gNB failed to setup PDU Session resources for SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "Failed to delete PFCP session on setup failure for SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP on setup failure for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
+
+    collection
+        .delete_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let n1_reject = NasParser::build_pdu_session_establishment_reject(
+        sm_context.pdu_session_id,
+        0,
+        GsmCause::InsufficientResourcesForSliceAndDnn,
+    );
+    let encoded_n1 = general_purpose::STANDARD.encode(&n1_reject);
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded_n1 }),
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: None,
+        session_ambr: None,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+        cause: Some(crate::models::SmContextUpdateCause::InsufficientUpResources),
+    }))
+}
+
+async fn handle_n2_release_response(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    tracing::info!(
+        "gNB confirmed resource release for SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "Failed to delete PFCP session on N2 release for SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP on N2 release for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
+
+    collection
+        .delete_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: None,
+        session_ambr: None,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+        cause: None,
+    }))
+}
+
+async fn handle_ue_release_complete(
+    state: AppState,
+    sm_context_ref: String,
+    sm_context: SmContext,
+) -> Result<Json<PduSessionUpdatedData>, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    tracing::info!(
+        "UE confirmed PDU Session Release for SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "Failed to delete PFCP session on UE release complete for SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &sm_context_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to release IP on UE release complete for SM Context {}: {}", sm_context_ref, e);
+        })
+        .ok();
+
+    collection
+        .delete_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    Ok(Json(PduSessionUpdatedData {
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        eps_bearer_info: None,
+        supported_features: None,
+        ho_state: None,
+        session_ambr: None,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        qos_flows_add_mod_list: None,
+        qos_flows_rel_list: None,
+        up_cnx_state: None,
+        data_forwarding: None,
+        cause: None,
+    }))
+}
+
+fn build_n2_release_command_transfer(
+    _qos_flows: &[QosFlow],
+) -> Result<String, AppError> {
+    let cause_bytes: Vec<u8> = vec![
+        0x00, 0x00, 0x00, 0x00,
+        0x02,
+    ];
+    Ok(general_purpose::STANDARD.encode(&cause_bytes))
 }
 
 async fn handle_ue_modification_request(
@@ -1960,6 +2324,7 @@ async fn handle_ue_modification_request(
             qos_flows_rel_list: None,
             up_cnx_state: None,
             data_forwarding: None,
+            cause: None,
         }));
     }
 
@@ -2001,6 +2366,7 @@ async fn handle_ue_modification_request(
                     qos_flows_rel_list: None,
                     up_cnx_state: None,
                     data_forwarding: None,
+                    cause: None,
                 }));
             }
         }
@@ -2111,6 +2477,7 @@ async fn handle_ue_modification_request(
         qos_flows_rel_list,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -2147,27 +2514,6 @@ async fn handle_ue_release_request(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
-            tracing::warn!(
-                "Failed to delete PFCP session for SUPI: {}: {}, proceeding with release",
-                sm_context.supi, e
-            );
-        }
-    }
-
-    IpamService::release_ip(&state.db, &sm_context_ref)
-        .await
-        .map_err(|e| {
-            tracing::warn!("Failed to release IP for SM Context {}: {}", sm_context_ref, e);
-        })
-        .ok();
-
-    collection
-        .delete_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
     let n1_command = NasParser::build_pdu_session_release_command(
         release_request.pdu_session_id,
         release_request.pti,
@@ -2175,16 +2521,20 @@ async fn handle_ue_release_request(
     );
     let encoded_n1 = general_purpose::STANDARD.encode(&n1_command);
 
-    tracing::info!(
-        "UE-initiated release completed for SUPI: {}, PSI: {}",
-        sm_context.supi,
-        sm_context.pdu_session_id
-    );
+    let n2_encoded = build_n2_release_command_transfer(
+        &sm_context.qos_flows,
+    )?;
 
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded_n1 }),
         n1_sm_msg: None,
-        n2_sm_info: None,
+        n2_sm_info: Some(N2SmInfo {
+            content_id: "n2-pdu-session-resource-release-command-transfer".to_string(),
+            n2_info_content: N2InfoContent {
+                ngap_ie_type: NgapIeType::PduResRelCmd,
+                ngap_data: n2_encoded,
+            },
+        }),
         n2_sm_info_type: Some(N2SmInfoType::PduResRelCmd),
         eps_bearer_info: None,
         supported_features: None,
@@ -2196,6 +2546,7 @@ async fn handle_ue_release_request(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -2326,6 +2677,7 @@ async fn handle_network_modification(
         qos_flows_rel_list,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -2669,6 +3021,7 @@ async fn handle_ho_preparing(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: payload.data_forwarding,
+        cause: None,
     }))
 }
 
@@ -2823,6 +3176,7 @@ async fn handle_ho_prepared(
         qos_flows_rel_list,
         up_cnx_state: None,
         data_forwarding: payload.data_forwarding,
+        cause: None,
     }))
 }
 
@@ -2994,6 +3348,7 @@ pub async fn handle_handover_request_ack(
         qos_flows_rel_list,
         up_cnx_state: None,
         data_forwarding: payload.data_forwarding,
+        cause: None,
     }))
 }
 
@@ -3140,6 +3495,7 @@ async fn handle_ho_completed(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -3222,6 +3578,7 @@ async fn handle_source_smf_ho_release(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -3338,6 +3695,7 @@ async fn cancel_handover_internal(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 
@@ -3503,6 +3861,7 @@ pub async fn handle_handover_notify(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
+        cause: None,
     }))
 }
 

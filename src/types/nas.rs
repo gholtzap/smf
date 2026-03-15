@@ -15,6 +15,7 @@ pub enum NasMessageType {
     PduSessionReleaseRequest = 0xD1,
     PduSessionReleaseReject = 0xD2,
     PduSessionReleaseCommand = 0xD3,
+    PduSessionReleaseComplete = 0xD4,
     Unknown = 0xFF,
 }
 
@@ -32,6 +33,7 @@ impl From<u8> for NasMessageType {
             0xD1 => NasMessageType::PduSessionReleaseRequest,
             0xD2 => NasMessageType::PduSessionReleaseReject,
             0xD3 => NasMessageType::PduSessionReleaseCommand,
+            0xD4 => NasMessageType::PduSessionReleaseComplete,
             _ => NasMessageType::Unknown,
         }
     }
@@ -943,6 +945,20 @@ impl NasParser {
             pdu_session_id,
             pti,
             NasMessageType::PduSessionReleaseReject as u8,
+            cause.as_u8(),
+        ]
+    }
+
+    pub fn build_pdu_session_establishment_reject(
+        pdu_session_id: u8,
+        pti: u8,
+        cause: GsmCause,
+    ) -> Vec<u8> {
+        vec![
+            0x2E,
+            pdu_session_id,
+            pti,
+            NasMessageType::PduSessionEstablishmentReject as u8,
             cause.as_u8(),
         ]
     }

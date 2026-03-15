@@ -353,27 +353,52 @@ pub struct PduSessionUpdateData {
     pub pcf_id: Option<String>,
     pub pcf_group_id: Option<String>,
     pub pcf_set_id: Option<String>,
+    #[serde(default)]
+    pub release: Option<bool>,
+    pub serving_nf_id: Option<String>,
+    pub sm_context_status_uri: Option<String>,
+    pub ng_ap_cause: Option<NgApCause>,
+    #[serde(rename = "5gMmCauseValue")]
+    pub five_g_mm_cause_value: Option<u32>,
+    pub pei: Option<String>,
+    pub guami: Option<Guami>,
+    pub serving_network: Option<String>,
+    pub to_be_switched: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PduSessionUpdatedData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n1_sm_info_to_ue: Option<RefToBinaryData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n1_sm_msg: Option<RefToBinaryData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n2_sm_info: Option<N2SmInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub n2_sm_info_type: Option<N2SmInfoType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub eps_bearer_info: Option<Vec<EpsBearerInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub supported_features: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ho_state: Option<HoState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_ambr: Option<Ambr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cn_tunnel_info: Option<TunnelInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_cn_tunnel_info: Option<TunnelInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub qos_flows_add_mod_list: Option<Vec<QosFlowItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub qos_flows_rel_list: Option<Vec<QosFlowItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub up_cnx_state: Option<UpCnxState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_forwarding: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<SmContextUpdateCause>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,6 +445,7 @@ pub enum UpCnxState {
     Activated,
     Deactivated,
     Activating,
+    Suspended,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -427,12 +453,37 @@ pub enum UpCnxState {
 pub enum SmContextUpdateCause {
     RelDueToHo,
     EpsFallback,
-    RelDueTo5gAnRelease,
-    RelDueToPsToCs,
+    #[serde(rename = "REL_DUE_TO_UP_SEC")]
+    RelDueToUpSec,
+    DnnCongestion,
+    #[serde(rename = "S_NSSAI_CONGESTION")]
+    SNssaiCongestion,
+    RelDueToReactivation,
+    #[serde(rename = "5G_AN_NOT_RESPONDING")]
+    FiveGAnNotResponding,
     RelDueToSliceNotAvailable,
     RelDueToDuplicateSessionId,
-    RelDueToPdnCxMismatch,
-    RelDueToReactivation,
+    PduSessionStatusMismatch,
+    HoFailure,
+    InsufficientUpResources,
+    PduSessionHandedOver,
+    PduSessionResumed,
+    CnAssistedRanParameterTuning,
+    IsmfContextTransfer,
+    SmfContextTransfer,
+    RelDueToPsToCs,
+    RelDueToSubscriptionChange,
+    HoCancel,
+    RelDueToSliceNotAuthorized,
+    PduSessionHandOverFailure,
+    DdnFailureStatus,
+    RelDueToCpOnlyNotApplicable,
+    NotSupportedWithIsmf,
+    ChangedAnchorSmf,
+    ChangedIntermediateSmf,
+    TargetDnaiNotification,
+    RelDueToVplmnQosFailure,
+    RelDueToUnspecifiedReason,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

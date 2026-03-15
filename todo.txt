@@ -1,7 +1,6 @@
 Nsmf_PDUSession (TS 29.502) — SM Contexts
   POST,/nsmf-pdusession/v1/sm-contexts,handlers::pdu_session::create_pdu_session
   POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/retrieve,handlers::pdu_session::retrieve_sm_context
-  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/modify,handlers::pdu_session::update_pdu_session
   POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/send-mo-data,handlers::pdu_session::send_mo_data (stub)
 
   Nsmf_PDUSession (TS 29.502) — PDU Sessions (H-SMF/roaming)
