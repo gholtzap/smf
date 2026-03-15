@@ -271,6 +271,7 @@ impl PfcpSessionManager {
             pfcp_session_retention_information: None,
             user_plane_inactivity_timer: Some(300),
             up_security_parameters: up_security.map(|sec| Self::convert_up_security_to_pfcp(sec)),
+            send_end_marker: None,
         };
 
         if let Some(new_ip) = ue_ipv4 {
@@ -345,6 +346,7 @@ impl PfcpSessionManager {
         new_an_ipv4: Ipv4Addr,
         new_an_teid: &str,
         up_security: Option<&UpSecurityContext>,
+        send_end_marker: bool,
     ) -> Result<PfcpSessionModificationResponse> {
         let teid = u32::from_str_radix(new_an_teid, 16)
             .map_err(|e| anyhow!("Invalid TEID format: {}", e))?;
@@ -399,6 +401,7 @@ impl PfcpSessionManager {
             pfcp_session_retention_information: None,
             user_plane_inactivity_timer: Some(300),
             up_security_parameters: up_security.map(|sec| Self::convert_up_security_to_pfcp(sec)),
+            send_end_marker: if send_end_marker { Some(true) } else { None },
         };
 
         pfcp_client.send_session_modification_request(seid, &request).await?;
@@ -462,6 +465,7 @@ impl PfcpSessionManager {
             pfcp_session_retention_information: None,
             user_plane_inactivity_timer: None,
             up_security_parameters: None,
+            send_end_marker: None,
         };
 
         pfcp_client.send_session_modification_request(seid, &request).await?;

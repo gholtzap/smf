@@ -973,6 +973,7 @@ async fn handle_n2_setup_response(
             an_ipv4,
             &teid_hex,
             sm_context.up_security_context.as_ref(),
+            false,
         ).await.map_err(|e| {
             AppError::ValidationError(format!("Failed to activate DL FAR: {}", e))
         })?;
@@ -1202,6 +1203,7 @@ async fn handle_path_switch(
             an_ipv4,
             &an_tunnel_info.gtp_teid,
             sm_context.up_security_context.as_ref(),
+            true,
         ).await {
             Ok(_) => {
                 tracing::info!(
@@ -2535,19 +2537,6 @@ async fn handle_ho_prepared(
         None
     };
 
-    state.notification_service.notify_pdu_session_event(
-        &state.db,
-        crate::types::EventType::UpPathChange,
-        &sm_context.supi,
-        sm_context.pdu_session_id,
-        Some(sm_context.dnn.clone()),
-        Some(sm_context.s_nssai.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
-        Some(sm_context_ref.clone()),
-        None,
-    ).await;
-
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
@@ -2713,19 +2702,6 @@ pub async fn handle_handover_request_ack(
         None
     };
 
-    state.notification_service.notify_pdu_session_event(
-        &state.db,
-        crate::types::EventType::UpPathChange,
-        &sm_context.supi,
-        sm_context.pdu_session_id,
-        Some(sm_context.dnn.clone()),
-        Some(sm_context.s_nssai.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
-        Some(sm_context_ref.clone()),
-        None,
-    ).await;
-
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
@@ -2785,6 +2761,7 @@ async fn handle_ho_completed(
                         an_ipv4,
                         &an_tunnel_info.gtp_teid,
                         sm_context.up_security_context.as_ref(),
+                        true,
                     ).await {
                         tracing::error!("Failed to modify PFCP session for handover: {}", e);
                     }
@@ -2844,6 +2821,19 @@ async fn handle_ho_completed(
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::EventType::UpPathChange,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        Some(sm_context_ref.clone()),
+        None,
+    ).await;
 
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,

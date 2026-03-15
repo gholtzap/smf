@@ -50,6 +50,8 @@ pub struct PfcpSessionModificationRequest {
     pub pfcp_session_retention_information: Option<PfcpSessionRetentionInformation>,
     pub user_plane_inactivity_timer: Option<u32>,
     pub up_security_parameters: Option<UpSecurityParameters>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_end_marker: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
