@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use super::{N2SmInfo, PlmnId, RefToBinaryData};
 use super::nrf::Tai;
+use super::ngap::{IntegrityProtectionResult, ConfidentialityProtectionResult};
 use crate::models::{TunnelInfo, UserLocation};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,5 +106,6 @@ pub struct AllocatedHandoverResources {
     pub target_tunnel_info: TunnelInfo,
     pub allocated_qos_flow_ids: Vec<u8>,
     pub failed_qos_flow_ids: Vec<u8>,
-    pub security_activated: bool,
+    pub integrity_protection_result: Option<IntegrityProtectionResult>,
+    pub confidentiality_protection_result: Option<ConfidentialityProtectionResult>,
 }

@@ -140,22 +140,24 @@ impl HandoverService {
             })
             .unwrap_or_default();
 
-        let security_activated = response_transfer
+        let integrity_protection_result = response_transfer
             .security_result
             .as_ref()
-            .map(|sr| {
-                sr.integrity_protection_result == crate::types::ngap::IntegrityProtectionResult::Performed
-                    || sr.confidentiality_protection_result == crate::types::ngap::ConfidentialityProtectionResult::Performed
-            })
-            .unwrap_or(false);
+            .map(|sr| sr.integrity_protection_result);
+
+        let confidentiality_protection_result = response_transfer
+            .security_result
+            .as_ref()
+            .map(|sr| sr.confidentiality_protection_result);
 
         tracing::info!(
-            "Extracted allocated handover resources - Target tunnel: IP={:?}, TEID={}, Allocated QoS flows: {:?}, Failed QoS flows: {:?}, Security activated: {}",
+            "Extracted allocated handover resources - Target tunnel: IP={:?}, TEID={}, Allocated QoS flows: {:?}, Failed QoS flows: {:?}, Integrity: {:?}, Confidentiality: {:?}",
             target_ipv4,
             target_teid,
             allocated_qos_flow_ids,
             failed_qos_flow_ids,
-            security_activated
+            integrity_protection_result,
+            confidentiality_protection_result
         );
 
         Ok(AllocatedHandoverResources {
@@ -166,7 +168,8 @@ impl HandoverService {
             },
             allocated_qos_flow_ids,
             failed_qos_flow_ids,
-            security_activated,
+            integrity_protection_result,
+            confidentiality_protection_result,
         })
     }
 }

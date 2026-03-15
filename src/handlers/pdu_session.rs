@@ -2418,49 +2418,83 @@ async fn handle_ho_prepared(
         sm_context.pdu_session_id
     );
 
+    let n2_sm_info = payload.n2_sm_info
+        .as_ref()
+        .ok_or_else(|| AppError::ValidationError(
+            "N2 SM Info with PDUSessionResourceSetupResponseTransfer required for Handover Request Acknowledge".to_string()
+        ))?;
+
+    let resources = HandoverService::extract_allocated_handover_resources(&n2_sm_info.n2_info_content.ngap_data)
+        .map_err(|e| AppError::ValidationError(format!(
+            "Failed to extract handover resources for SUPI {}: {}", sm_context.supi, e
+        )))?;
+
+    let mapping_result = QosFlowMappingService::map_qos_flows_to_target(
+        &sm_context.qos_flows,
+        &resources.allocated_qos_flow_ids,
+        &resources.failed_qos_flow_ids,
+    );
+
+    if !mapping_result.mapping_status.is_acceptable() {
+        return Err(AppError::ValidationError(format!(
+            "QoS flow mapping failed: {:?}",
+            mapping_result.mapping_status
+        )));
+    }
+
+    if let Some(ref up_sec) = sm_context.up_security_context {
+        if up_sec.integrity_protection_activated {
+            if resources.integrity_protection_result == Some(crate::types::ngap::IntegrityProtectionResult::NotPerformed) {
+                tracing::warn!(
+                    "Target gNB did not activate integrity protection for SUPI: {}, PSI: {} - was active on source",
+                    sm_context.supi,
+                    sm_context.pdu_session_id
+                );
+            }
+        }
+        if up_sec.confidentiality_protection_activated {
+            if resources.confidentiality_protection_result == Some(crate::types::ngap::ConfidentialityProtectionResult::NotPerformed) {
+                tracing::warn!(
+                    "Target gNB did not activate confidentiality protection for SUPI: {}, PSI: {} - was active on source",
+                    sm_context.supi,
+                    sm_context.pdu_session_id
+                );
+            }
+        }
+    }
+
+    let updated_up_security = sm_context.up_security_context.clone().map(|mut sec| {
+        if let Some(ref ip_result) = resources.integrity_protection_result {
+            sec.integrity_protection_activated = *ip_result == crate::types::ngap::IntegrityProtectionResult::Performed;
+        }
+        if let Some(ref cp_result) = resources.confidentiality_protection_result {
+            sec.confidentiality_protection_activated = *cp_result == crate::types::ngap::ConfidentialityProtectionResult::Performed;
+        }
+        sec
+    });
+
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
+            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        "an_tunnel_info": mongodb::bson::to_bson(&resources.target_tunnel_info)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
 
-    if let Some(ref n2_sm_info) = payload.n2_sm_info {
-        match HandoverService::extract_allocated_handover_resources(&n2_sm_info.n2_info_content.ngap_data) {
-            Ok(resources) => {
-                let mapping_result = QosFlowMappingService::map_qos_flows_to_target(
-                    &sm_context.qos_flows,
-                    &resources.allocated_qos_flow_ids,
-                    &resources.failed_qos_flow_ids,
-                );
+    if !mapping_result.allocated_flows.is_empty() {
+        update_doc.insert(
+            "qos_flows",
+            mongodb::bson::to_bson(&mapping_result.allocated_flows)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
 
-                if !mapping_result.mapping_status.is_acceptable() {
-                    return Err(AppError::ValidationError(format!(
-                        "QoS flow mapping failed: {:?}",
-                        mapping_result.mapping_status
-                    )));
-                }
-
-                update_doc.insert(
-                    "an_tunnel_info",
-                    mongodb::bson::to_bson(&resources.target_tunnel_info)
-                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-                );
-
-                if !mapping_result.allocated_flows.is_empty() {
-                    update_doc.insert(
-                        "qos_flows",
-                        mongodb::bson::to_bson(&mapping_result.allocated_flows)
-                            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to extract handover resources for SUPI: {}: {}",
-                    sm_context.supi, e
-                );
-            }
-        }
+    if let Some(ref up_sec) = updated_up_security {
+        update_doc.insert(
+            "up_security_context",
+            mongodb::bson::to_bson(up_sec)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
     }
 
     collection
@@ -2471,6 +2505,49 @@ async fn handle_ho_prepared(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::deactivate_downlink(pfcp_client, pfcp_session_id).await {
+            tracing::error!(
+                "Failed to buffer DL at UPF during handover for SUPI: {}, PSI: {}: {}",
+                sm_context.supi, sm_context.pdu_session_id, e
+            );
+        }
+    }
+
+    let upf_ipv4 = sm_context.upf_tunnel_ipv4
+        .as_deref()
+        .or_else(|| sm_context.upf_address.as_deref())
+        .unwrap_or("127.0.0.1");
+    let upf_teid = sm_context.upf_teid.unwrap_or(0);
+
+    let cn_tunnel_info = TunnelInfo {
+        ipv4_addr: Some(upf_ipv4.to_string()),
+        ipv6_addr: None,
+        gtp_teid: format!("{:08x}", upf_teid),
+    };
+
+    let qos_flows_rel_list = if !mapping_result.failed_flows.is_empty() {
+        Some(mapping_result.failed_flows.iter().map(|f| QosFlowItem {
+            qfi: f.qfi,
+            qos_profile: None,
+        }).collect())
+    } else {
+        None
+    };
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::EventType::UpPathChange,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        Some(sm_context_ref.clone()),
+        None,
+    ).await;
+
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
@@ -2480,12 +2557,12 @@ async fn handle_ho_prepared(
         supported_features: None,
         ho_state: Some(HoState::Prepared),
         session_ambr: sm_context.session_ambr.clone(),
-        cn_tunnel_info: None,
+        cn_tunnel_info: Some(cn_tunnel_info),
         additional_cn_tunnel_info: None,
         qos_flows_add_mod_list: None,
-        qos_flows_rel_list: None,
+        qos_flows_rel_list,
         up_cnx_state: None,
-        data_forwarding: None,
+        data_forwarding: payload.data_forwarding,
     }))
 }
 
