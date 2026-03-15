@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
 use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -2332,8 +2332,9 @@ async fn handle_network_modification(
 pub async fn release_pdu_session(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
-    Json(payload): Json<PduSessionReleaseData>,
-) -> Result<Json<PduSessionReleasedData>, AppError> {
+    body: Option<Json<SmContextReleaseData>>,
+) -> Result<Response, AppError> {
+    let payload = body.map(|j| j.0);
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     let sm_context = collection
@@ -2341,6 +2342,24 @@ pub async fn release_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    if let Some(ref data) = payload {
+        if let Some(ref loc) = data.ue_location {
+            collection
+                .update_one(
+                    doc! { "_id": &sm_context_ref },
+                    doc! {
+                        "$set": {
+                            "ue_location": mongodb::bson::to_bson(loc)
+                                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                            "updated_at": mongodb::bson::DateTime::now()
+                        }
+                    }
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        }
+    }
 
     collection
         .update_one(
@@ -2360,21 +2379,19 @@ pub async fn release_pdu_session(
         match PfcpSessionManager::delete_session(pfcp_client, seid).await {
             Ok(_) => {
                 tracing::info!(
-                    "PFCP Session deleted for SUPI: {}, SEID: {}, State: InactivePending -> Deleted",
+                    "PFCP session deleted for SUPI: {}, SEID: {}",
                     sm_context.supi,
                     seid
                 );
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to delete PFCP session for SUPI: {}: {}, proceeding with SM Context deletion",
+                    "Failed to delete PFCP session for SUPI: {}: {}, proceeding with cleanup",
                     sm_context.supi,
                     e
                 );
             }
         }
-    } else {
-        tracing::debug!("PFCP client or session ID not available, skipping PFCP session deletion, State: InactivePending -> Deleted");
     }
 
     if let (Some(ref pcf_client), Some(ref policy_id)) = (&state.pcf_client, &sm_context.pcf_policy_id) {
@@ -2390,14 +2407,12 @@ pub async fn release_pdu_session(
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to delete SM policy for SUPI: {}: {}, proceeding with SM Context deletion",
+                    "Failed to delete SM policy for SUPI: {}: {}, proceeding with cleanup",
                     sm_context.supi,
                     e
                 );
             }
         }
-    } else {
-        tracing::debug!("PCF client or policy ID not available, skipping SM policy deletion");
     }
 
     if let (Some(ref chf_client), Some(ref charging_ref)) = (&state.chf_client, &sm_context.chf_charging_ref) {
@@ -2436,15 +2451,15 @@ pub async fn release_pdu_session(
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to release charging session for SUPI: {}: {}, proceeding with SM Context deletion",
+                    "Failed to release charging session for SUPI: {}: {}, proceeding with cleanup",
                     sm_context.supi,
                     e
                 );
             }
         }
-    } else {
-        tracing::debug!("CHF client or charging ref not available, skipping charging session release");
     }
+
+    let release_cause = payload.as_ref().and_then(|d| d.cause.clone());
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
@@ -2459,15 +2474,6 @@ pub async fn release_pdu_session(
         Some(crate::types::Cause::RegularDeactivation),
     ).await;
 
-    if sm_context.ssc_mode == SscMode::Mode1 {
-        tracing::info!(
-            "SSC Mode 1: Releasing IP address on PDU session termination for SUPI: {}, IPv4: {:?}, IPv6: {:?}",
-            sm_context.supi,
-            sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.as_ref()),
-            sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.as_ref())
-        );
-    }
-
     IpamService::release_ip(&state.db, &sm_context_ref)
         .await
         .map_err(|e| {
@@ -2480,17 +2486,29 @@ pub async fn release_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let response = PduSessionReleasedData {
-        n1_sm_info_to_ue: None,
-        n2_sm_info: payload.n2_sm_info.or(Some(N2SmInfo {
-            content_id: "n2-sm-info".to_string(),
-            n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::PduResRelCmd,
-                ngap_data: "base64_encoded_ngap_data".to_string(),
+    if let Some(ref status_uri) = sm_context.sm_context_status_uri {
+        let client = reqwest::Client::new();
+        let notification = SmContextStatusNotification {
+            status_info: SmContextStatusInfo {
+                resource_status: ResourceStatus::Released,
+                cause: release_cause,
             },
-        })),
-        n2_sm_info_type: payload.n2_sm_info_type.or(Some(crate::models::N2SmInfoType::PduResRelCmd)),
-    };
+        };
+        let uri = status_uri.clone();
+        tokio::spawn(async move {
+            match client.post(&uri).json(&notification).send().await {
+                Ok(resp) => {
+                    tracing::info!(
+                        "SmContextStatusNotification sent to AMF, status: {}",
+                        resp.status()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to send SmContextStatusNotification to AMF: {}", e);
+                }
+            }
+        });
+    }
 
     tracing::info!(
         "Released PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
@@ -2499,7 +2517,7 @@ pub async fn release_pdu_session(
         sm_context_ref
     );
 
-    Ok(Json(response))
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 pub async fn list_ue_pdu_sessions(

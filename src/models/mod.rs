@@ -444,33 +444,69 @@ pub struct EpsBearerInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PduSessionReleaseData {
+pub struct SmContextReleaseData {
+    pub cause: Option<String>,
+    pub ng_ap_cause: Option<NgApCause>,
+    #[serde(rename = "5gMmCauseValue")]
+    pub five_g_mm_cause_value: Option<u32>,
+    pub ue_location: Option<UserLocation>,
+    pub ue_time_zone: Option<String>,
+    pub vsmf_release_only: Option<bool>,
     pub n2_sm_info: Option<N2SmInfo>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
-    pub cause: Option<ReleaseCause>,
-    pub ng_ap_cause: Option<NgApCause>,
-    pub five_g_mm_cause_value: Option<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ReleaseCause {
-    NwInitiated,
-    UeInitiated,
-    DdnFailure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NgApCause {
-    pub group: u8,
-    pub value: u8,
+    pub group: u32,
+    pub value: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PduSessionReleasedData {
-    pub n1_sm_info_to_ue: Option<RefToBinaryData>,
-    pub n2_sm_info: Option<N2SmInfo>,
-    pub n2_sm_info_type: Option<N2SmInfoType>,
+pub struct SmContextReleasedData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub small_data_rate_status: Option<SmallDataRateStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apn_rate_status: Option<ApnRateStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmallDataRateStatus {
+    pub remain_packets_ul: Option<u32>,
+    pub remain_packets_dl: Option<u32>,
+    pub validity_time: Option<String>,
+    pub remain_ex_reports_ul: Option<u32>,
+    pub remain_ex_reports_dl: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApnRateStatus {
+    pub remain_packets_ul: Option<u32>,
+    pub remain_packets_dl: Option<u32>,
+    pub validity_time: Option<String>,
+    pub remain_ex_reports_ul: Option<u32>,
+    pub remain_ex_reports_dl: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmContextStatusNotification {
+    pub status_info: SmContextStatusInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmContextStatusInfo {
+    pub resource_status: ResourceStatus,
+    pub cause: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResourceStatus {
+    Released,
 }

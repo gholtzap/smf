@@ -1,0 +1,71 @@
+Nsmf_PDUSession (TS 29.502) — SM Contexts
+  POST,/nsmf-pdusession/v1/sm-contexts,handlers::pdu_session::create_pdu_session
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/retrieve,handlers::pdu_session::retrieve_sm_context
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/modify,handlers::pdu_session::update_pdu_session
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/send-mo-data,handlers::pdu_session::send_mo_data (stub)
+
+  Nsmf_PDUSession (TS 29.502) — PDU Sessions (H-SMF/roaming)
+  POST,/nsmf-pdusession/v1/pdu-sessions,handlers::pdu_session::create_pdu_session_hsmf (stub)
+  POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/modify,handlers::pdu_session::modify_pdu_session_hsmf (stub)
+  POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/	release,handlers::pdu_session::release_pdu_session_hsmf (stub)
+  POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/retrieve,handlers::pdu_session::retrieve_pdu_session_hsmf (stub)
+  POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/transfer-mo-data,handlers::pdu_session::transfer_mo_data_hsmf (stub)
+
+  Nsmf_PDUSession — Non-standard (handover)
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-request-ack,handlers::pdu_session::handle_handover_request_ack
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-notify,handlers::pdu_session::handle_handover_notify
+  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-cancel,handlers::pdu_session::handle_handover_cancel
+
+  Nsmf_PDUSession — Non-standard (AMF-SMF coordination)
+  POST,/nsmf-pdusession/v1/sm-contexts/retrieve,handlers::amf_smf_coordination::retrieve_sm_context_for_amf
+  POST,/nsmf-pdusession/v1/sm-contexts/release-notify,handlers::amf_smf_coordination::release_sm_context_on_transfer
+
+  Nsmf_EventExposure (TS 29.508)
+  POST,/nsmf-event-exposure/v1/subscriptions,handlers::event_exposure::create_event_subscription
+  PUT,/nsmf-event-exposure/v1/subscriptions/:subscriptionId,handlers::event_exposure::update_event_subscription
+  DELETE,/nsmf-event-exposure/v1/subscriptions/:subscriptionId,handlers::event_exposure::delete_event_subscription
+
+  Callbacks (public, no auth)
+  GET,/health,health_check
+  POST,/nnrf-nfm/v1/nf-status-notify,handlers::nrf_notification::handle_nf_status_notification
+  POST,/namf-callback/v1/ue-contexts/:ueId/n1-n2-transfers/:transactionId/notify,handlers::amf_callback::handle_n1n2_transfer_status
+  POST,/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify,handlers::amf_callback::handle_n2_info_notify
+
+  Admin (non-standard, internal)
+  GET,/admin/sm-contexts/:smContextRef,handlers::pdu_session::admin_retrieve_pdu_session
+  GET,/admin/ue-contexts/:supi/sm-contexts,handlers::pdu_session::list_ue_pdu_sessions
+  GET,/admin/ue-contexts/:supi/sm-contexts/:pduSessionId,handlers::pdu_session::retrieve_pdu_session_by_supi
+  POST,/admin/sm-contexts/:smContextRef/qos-rules,handlers::qos_rule::add_qos_rules
+  GET,/admin/sm-contexts/:smContextRef/qos-rules,handlers::qos_rule::get_qos_rules
+  DELETE,/admin/sm-contexts/:smContextRef/qos-rules,handlers::qos_rule::remove_qos_rules
+  POST,/admin/sm-contexts/:smContextRef/qos-rules/modify,handlers::qos_rule::modify_qos_rule
+  POST,/admin/sm-contexts/:smContextRef/qos-rules/apply,handlers::qos_rule::apply_qos_rules
+  POST,/admin/certificates/:name/:purpose/rotate,handlers::certificate_rotation::rotate_certificate
+  POST,/admin/certificates/rotations/rollback,handlers::certificate_rotation::rollback_certificate_rotation
+  GET,/admin/certificates/rotations/history,handlers::certificate_rotation::get_rotation_history
+  POST,/admin/certificates/auto-rotation/configs,handlers::certificate_auto_rotation::create_auto_rotation_config
+  GET,/admin/certificates/auto-rotation/configs,handlers::certificate_auto_rotation::list_auto_rotation_configs
+  GET,/admin/certificates/auto-rotation/configs/:config_id,handlers::certificate_auto_rotation::get_auto_rotation_config
+  PUT,/admin/certificates/auto-rotation/configs/:config_id,handlers::certificate_auto_rotation::update_auto_rotation_config
+  DELETE,/admin/certificates/auto-rotation/configs/:config_id,handlers::certificate_auto_rotation::delete_auto_rotation_config
+  GET,/admin/certificates/auto-rotation/configs/:config_id/status,handlers::certificate_auto_rotation::get_auto_rotation_status
+  GET,/admin/certificates/auto-rotation/configs/:config_id/attempts,handlers::certificate_auto_rotation::get_config_attempts
+  GET,/admin/certificates/auto-rotation/attempts,handlers::certificate_auto_rotation::get_recent_attempts
+  GET,/admin/certificates/audit-logs,handlers::certificate_audit::query_audit_logs
+  GET,/admin/certificates/audit-logs/summary,handlers::certificate_audit::get_audit_summary
+  GET,/admin/certificates/usage-records,handlers::certificate_audit::query_usage_records
+  GET,/admin/certificates/usage-records/summary,handlers::certificate_audit::get_usage_summary
+  GET,/admin/crls,handlers::crl::list_crls
+  POST,/admin/crls/fetch,handlers::crl::fetch_crl
+  GET,/admin/crls/expired,handlers::crl::list_expired_crls
+  GET,/admin/crls/needs-refresh,handlers::crl::list_crls_needs_refresh
+  GET,/admin/crls/:id,handlers::crl::get_crl
+  DELETE,/admin/crls/:id,handlers::crl::delete_crl
+  GET,/admin/crls/check-revocation/:serial_number/:issuer,handlers::crl::check_revocation
+  GET,/admin/crls/fetch-attempts,handlers::crl::get_fetch_attempts
+  POST,/admin/ocsp/check,handlers::ocsp::check_certificate
+  GET,/admin/ocsp/cache,handlers::ocsp::list_cache
+  GET,/admin/ocsp/cache/expired,handlers::ocsp::list_expired_cache
+  DELETE,/admin/ocsp/cache/:id,handlers::ocsp::delete_cache_entry
+  POST,/admin/ocsp/cache/clear,handlers::ocsp::clear_cache
+  POST,/admin/ocsp/cache/expired/delete,handlers::ocsp::delete_expired_cache
