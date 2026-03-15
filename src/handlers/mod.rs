@@ -5,7 +5,6 @@ pub mod nrf_notification;
 pub mod packet_filter;
 pub mod qos_rule;
 pub mod amf_callback;
-pub mod n16_transfer;
 pub mod amf_smf_coordination;
 pub mod certificate_rotation;
 pub mod certificate_auto_rotation;

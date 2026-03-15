@@ -11,7 +11,6 @@ use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, PduSessionReleaseData, PduSessionReleasedData, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
 use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
-use crate::types::sm_context_transfer::{SmContextTransferRequest, SmContextTransferResponse, TransferCause};
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
 use crate::services::qos_flow::QosFlowManager;
@@ -24,7 +23,6 @@ use crate::services::emergency::EmergencyService;
 use crate::services::up_security_selection::UpSecuritySelector;
 use crate::services::up_security_config::UpSecurityConfigService;
 use crate::services::ambr_enforcement::AmbrEnforcementService;
-use crate::services::context_transfer_target::ContextTransferTarget;
 use crate::types::up_security::UeSecurityCapabilities;
 use crate::types::ue_context::{SmContextSummary, SmContextListQuery, validate_supi, validate_pdu_session_id};
 use std::sync::Arc;
@@ -1328,72 +1326,11 @@ async fn handle_path_switch(
                     decision.target_upf_address
                 );
 
-                if let Some(ref target_upf) = decision.target_upf_address {
-                    if let Some(ref inter_smf_service) = state.inter_smf_handover_service {
-                        if inter_smf_service.should_trigger_handover(Some(current_upf_address), target_upf) {
-                            tracing::info!(
-                                "Inter-SMF handover required during path switch - Current UPF: {}, Target UPF: {} requires different SMF for SUPI: {}",
-                                current_upf_address,
-                                target_upf,
-                                sm_context.supi
-                            );
-
-                            let target_smf_uri = format!("http://{}/nsmf-pdusession/v1", target_upf);
-                            let transfer_cause = TransferCause::InterSmfHandover;
-
-                            match inter_smf_service.initiate_handover(
-                                &sm_context,
-                                &target_smf_uri,
-                                transfer_cause,
-                                None,
-                                None,
-                            ).await {
-                                Ok(response) if response.accepted => {
-                                    tracing::info!(
-                                        "Inter-SMF handover successful during path switch for SUPI: {}, Target Context: {:?}",
-                                        sm_context.supi,
-                                        response.target_sm_context_ref
-                                    );
-                                    return Ok(Json(PduSessionUpdatedData {
-                                        n1_sm_info_to_ue: None,
-                                        n1_sm_msg: None,
-                                        n2_sm_info: Some(N2SmInfo {
-                                            content_id: "smf-changed".to_string(),
-                                            n2_info_content: N2InfoContent {
-                                                ngap_ie_type: NgapIeType::PathSwitchReqAck,
-                                                ngap_data: format!("smf_changed:{}", target_smf_uri),
-                                            },
-                                        }),
-                                        n2_sm_info_type: Some(N2SmInfoType::PathSwitchReqAck),
-                                        eps_bearer_info: None,
-                                        supported_features: None,
-                                        ho_state: None,
-                                        session_ambr: sm_context.session_ambr.clone(),
-                                        cn_tunnel_info: None,
-                                        additional_cn_tunnel_info: None,
-                                        qos_flows_add_mod_list: None,
-                                        qos_flows_rel_list: None,
-                                        up_cnx_state: None,
-                                        data_forwarding: None,
-                                    }));
-                                }
-                                Ok(response) => {
-                                    tracing::warn!(
-                                        "Inter-SMF handover rejected during path switch for SUPI: {}, Cause: {:?}. Continuing with local path switch.",
-                                        sm_context.supi,
-                                        response.cause
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Inter-SMF handover failed during path switch for SUPI: {}, Error: {}. Continuing with local path switch.",
-                                        sm_context.supi,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
+                if let Some(ref _target_upf) = decision.target_upf_address {
+                    tracing::info!(
+                        "UPF relocation target identified for SUPI: {}, but inter-SMF handover via N16 not yet implemented for path switch",
+                        sm_context.supi
+                    );
                 }
             }
         }
@@ -3345,45 +3282,6 @@ async fn cancel_handover_internal(
     }))
 }
 
-
-pub async fn receive_context_transfer(
-    State(state): State<AppState>,
-    Json(payload): Json<SmContextTransferRequest>,
-) -> Result<Json<SmContextTransferResponse>, AppError> {
-    tracing::info!(
-        "Receiving SM context transfer request - Transfer ID: {}, SUPI: {}, PDU Session ID: {}",
-        payload.transfer_id,
-        payload.supi,
-        payload.pdu_session_id
-    );
-
-    let pfcp_client = state
-        .pfcp_client
-        .as_ref()
-        .ok_or_else(|| AppError::ValidationError("PFCP client not initialized".to_string()))?;
-
-    let nf_instance_id = std::env::var("NF_INSTANCE_ID")
-        .unwrap_or_else(|_| "smf-instance-001".to_string());
-
-    let target_service = ContextTransferTarget::new(
-        state.db.clone(),
-        pfcp_client.clone(),
-        nf_instance_id,
-    );
-
-    let response = target_service
-        .receive_and_process_transfer(payload)
-        .await
-        .map_err(|e| AppError::ValidationError(e))?;
-
-    tracing::info!(
-        "Context transfer processing completed - Transfer ID: {}, Accepted: {}",
-        response.transfer_id,
-        response.accepted
-    );
-
-    Ok(Json(response))
-}
 
 pub async fn handle_handover_notify(
     State(state): State<AppState>,

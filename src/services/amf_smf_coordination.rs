@@ -5,7 +5,7 @@ use crate::types::amf_smf_coordination::{
     SmContextRetrieveRequest, SmContextRetrieveResponse, SmContextRetrieveResult,
     SmContextReleaseNotification, SmContextReleaseResponse,
 };
-use crate::types::sm_context_transfer::{SmContextData, TransferCause};
+use crate::types::sm_context_transfer::SmContextData;
 use anyhow::{Context as AnyhowContext, Result};
 use mongodb::Database;
 
@@ -61,13 +61,6 @@ impl AmfSmfCoordinationService {
                     failure_cause: Some(e),
                 });
             }
-
-            let _transfer_cause = match request.cause {
-                crate::types::SmContextRetrieveCause::InterSmfHandover => TransferCause::InterSmfHandover,
-                crate::types::SmContextRetrieveCause::SmfChange => TransferCause::SmfRelocation,
-                crate::types::SmContextRetrieveCause::SmfRelocation => TransferCause::SmfRelocation,
-                crate::types::SmContextRetrieveCause::AmfInitiatedChange => TransferCause::NetworkOptimization,
-            };
 
             let sm_context_data = self.prepare_context_data(&context)?;
 
