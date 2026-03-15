@@ -879,25 +879,33 @@ pub async fn retrieve_sm_context(
         .as_ref()
         .and_then(|p| p.sm_context_type.as_ref());
 
-    if matches!(sm_context_type, Some(crate::types::SmContextType::SmContext)) {
-        tracing::info!(
-            "Returning full SM context for inter-SMF transfer - SUPI: {}, PSI: {}",
-            sm_context.supi,
-            sm_context.pdu_session_id
-        );
+    match sm_context_type {
+        Some(crate::types::SmContextType::SmContext) => {
+            tracing::info!(
+                "Returning full SM context for inter-SMF transfer - SUPI: {}, PSI: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
 
-        return Ok(Json(SmContextRetrievedData {
-            ue_eps_pdn_connection: None,
-            sm_context: Some(sm_context),
-        }));
+            let response = crate::types::SmContextResponse::from_internal(&sm_context);
+            Ok(Json(SmContextRetrievedData {
+                ue_eps_pdn_connection: None,
+                sm_context: Some(response),
+            }))
+        }
+        Some(crate::types::SmContextType::AfCoordinationInfo) => {
+            Err(AppError::ValidationError(
+                "AF_COORDINATION_INFO retrieval not supported".to_string()
+            ))
+        }
+        Some(crate::types::SmContextType::EpsPdnConnection) | None => {
+            let eps_pdn_cnx = build_eps_pdn_cnx_container(&sm_context);
+            Ok(Json(SmContextRetrievedData {
+                ue_eps_pdn_connection: Some(eps_pdn_cnx),
+                sm_context: None,
+            }))
+        }
     }
-
-    let eps_pdn_cnx = build_eps_pdn_cnx_container(&sm_context);
-
-    Ok(Json(SmContextRetrievedData {
-        ue_eps_pdn_connection: Some(eps_pdn_cnx),
-        sm_context: None,
-    }))
 }
 
 fn build_eps_pdn_cnx_container(ctx: &SmContext) -> String {
@@ -988,46 +996,64 @@ async fn handle_inter_smf_handover_create(
         ))?;
 
     tracing::info!(
-        "Retrieved SM context from source SMF - SUPI: {}, PSI: {}, DNN: {}, State: {:?}",
-        source_ctx.supi,
+        "Retrieved SM context from source SMF - PSI: {}, DNN: {}",
         source_ctx.pdu_session_id,
         source_ctx.dnn,
-        source_ctx.state
     );
+
+    let qos_flows: Vec<QosFlow> = source_ctx.qos_flows_list.iter().map(|item| {
+        QosFlow::new_with_5qi(item.qfi, item.qos_flow_profile.five_qi)
+    }).collect();
+
+    let is_emergency = matches!(
+        payload.request_type,
+        Some(RequestType::InitialEmergencyRequest) | Some(RequestType::ExistingEmergencyPduSession)
+    );
+
+    let up_security_context = source_ctx.up_security.as_ref().map(|sec| {
+        crate::types::up_security::UpSecurityContext {
+            integrity_protection_algorithm: None,
+            ciphering_algorithm: None,
+            integrity_protection_activated: sec.up_integr == "REQUIRED",
+            confidentiality_protection_activated: sec.up_confid == "REQUIRED",
+            maximum_integrity_protected_data_rate_ul: None,
+            maximum_integrity_protected_data_rate_dl: None,
+        }
+    });
 
     let new_id = uuid::Uuid::new_v4().to_string();
     let mut sm_context = SmContext {
         id: new_id.clone(),
-        supi: source_ctx.supi,
+        supi: payload.supi.clone(),
         pdu_session_id: source_ctx.pdu_session_id,
-        dnn: source_ctx.dnn,
-        s_nssai: source_ctx.s_nssai,
+        dnn: source_ctx.dnn.clone(),
+        s_nssai: source_ctx.s_nssai.clone(),
         pdu_session_type: source_ctx.pdu_session_type.clone(),
         ssc_mode: source_ctx.ssc_mode,
         state: SmContextState::ActivePending,
         pdu_address: source_ctx.pdu_address.clone(),
         pfcp_session_id: None,
-        pcf_policy_id: source_ctx.pcf_policy_id,
-        chf_charging_ref: source_ctx.chf_charging_ref,
-        qos_flows: source_ctx.qos_flows,
-        packet_filters: source_ctx.packet_filters,
-        qos_rules: source_ctx.qos_rules,
-        mtu: source_ctx.mtu,
+        pcf_policy_id: None,
+        chf_charging_ref: None,
+        qos_flows,
+        packet_filters: vec![],
+        qos_rules: vec![crate::types::QosRule::new_default(1, 1)],
+        mtu: None,
         an_tunnel_info: None,
-        source_an_tunnel_info: source_ctx.an_tunnel_info,
-        ue_location: payload.ue_location.clone().or(source_ctx.ue_location),
+        source_an_tunnel_info: None,
+        ue_location: payload.ue_location.clone(),
         handover_state: Some(HoState::Preparing),
-        is_emergency: source_ctx.is_emergency,
+        is_emergency,
         request_type: payload.request_type.clone(),
-        up_security_context: source_ctx.up_security_context.clone(),
-        ue_security_capabilities: source_ctx.ue_security_capabilities,
+        up_security_context,
+        ue_security_capabilities: None,
         session_ambr: source_ctx.session_ambr.clone(),
         upf_address: None,
         upf_teid: None,
         upf_tunnel_ipv4: None,
         serving_nf_id: payload.serving_nf_id.clone(),
         sm_context_status_uri: payload.sm_context_status_uri.clone(),
-        created_at: source_ctx.created_at,
+        created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
 
