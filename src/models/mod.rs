@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode, TargetId};
+use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, PlmnId, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode, TargetId};
 use crate::types::up_security::{UpSecurityContext, UeSecurityCapabilities};
 use crate::types::sm_context_transfer::{SmContextData, TransferCause};
 
@@ -18,7 +18,7 @@ pub struct PduSessionCreateData {
     pub s_nssai: Snssai,
     #[serde(default)]
     pub serving_nf_id: Option<String>,
-    pub serving_network: Option<String>,
+    pub serving_network: Option<PlmnId>,
     pub request_type: Option<RequestType>,
     pub eps_bearer_id: Option<Vec<u8>>,
     pub pgw_s8c_fteid: Option<String>,
@@ -153,6 +153,8 @@ pub struct PduSessionCreatedData {
     pub smf_uri: Option<String>,
     pub pdu_session_id: u8,
     pub s_nssai: Snssai,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub up_cnx_state: Option<UpCnxState>,
     pub enable_pause_charging: Option<bool>,
     pub ue_ipv4_address: Option<String>,
     pub ue_ipv6_prefix: Option<String>,
@@ -247,6 +249,10 @@ pub struct SmContext {
     #[serde(rename = "_id")]
     pub id: String,
     pub supi: String,
+    #[serde(default)]
+    pub gpsi: Option<String>,
+    #[serde(default)]
+    pub pei: Option<String>,
     pub pdu_session_id: u8,
     pub dnn: String,
     pub s_nssai: Snssai,
@@ -280,6 +286,10 @@ pub struct SmContext {
     pub serving_nf_id: Option<String>,
     #[serde(default)]
     pub sm_context_status_uri: Option<String>,
+    #[serde(default)]
+    pub guami: Option<Guami>,
+    #[serde(default)]
+    pub serving_network: Option<PlmnId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -294,6 +304,8 @@ impl SmContext {
         Self {
             id: Uuid::new_v4().to_string(),
             supi: create_data.supi.clone(),
+            gpsi: create_data.gpsi.clone(),
+            pei: create_data.pei.clone(),
             pdu_session_id: create_data.pdu_session_id,
             dnn: create_data.dnn.clone(),
             s_nssai: create_data.s_nssai.clone(),
@@ -322,6 +334,8 @@ impl SmContext {
             upf_tunnel_ipv4: None,
             serving_nf_id: create_data.serving_nf_id.clone(),
             sm_context_status_uri: create_data.sm_context_status_uri.clone(),
+            guami: create_data.guami.clone(),
+            serving_network: create_data.serving_network.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -362,7 +376,7 @@ pub struct PduSessionUpdateData {
     pub five_g_mm_cause_value: Option<u32>,
     pub pei: Option<String>,
     pub guami: Option<Guami>,
-    pub serving_network: Option<String>,
+    pub serving_network: Option<PlmnId>,
     pub to_be_switched: Option<bool>,
 }
 

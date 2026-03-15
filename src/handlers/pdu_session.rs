@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
-use crate::types::{AppError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
+use crate::types::{AppError, SmContextCreateError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
@@ -30,8 +30,34 @@ use std::sync::Arc;
 pub async fn create_pdu_session(
     State(state): State<AppState>,
     Json(payload): Json<PduSessionCreateData>,
+) -> Result<Response, Response> {
+    create_pdu_session_inner(state, payload).await.map_err(|err| {
+        let status = err.status();
+        SmContextCreateError::from_app_error(&err).into_response(status)
+    })
+}
+
+async fn create_pdu_session_inner(
+    state: AppState,
+    payload: PduSessionCreateData,
 ) -> Result<Response, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    if payload.serving_nf_id.is_none() {
+        return Err(AppError::ValidationError(
+            "servingNfId is required".to_string(),
+        ));
+    }
+    if payload.serving_network.is_none() {
+        return Err(AppError::ValidationError(
+            "servingNetwork is required".to_string(),
+        ));
+    }
+    if payload.sm_context_status_uri.is_none() {
+        return Err(AppError::ValidationError(
+            "smContextStatusUri is required".to_string(),
+        ));
+    }
 
     EmergencyService::validate_emergency_request(
         &payload.request_type,
@@ -792,6 +818,12 @@ pub async fn create_pdu_session(
             (None, None, None, None)
         };
 
+    let up_cnx_state = match sm_context.state {
+        SmContextState::Active => Some(UpCnxState::Activated),
+        SmContextState::ActivePending => Some(UpCnxState::Activating),
+        _ => Some(UpCnxState::Deactivated),
+    };
+
     let response = PduSessionCreatedData {
         pdu_session_type: sm_context.pdu_session_type.clone(),
         ssc_mode: sm_context.ssc_mode.as_str().to_string(),
@@ -799,6 +831,7 @@ pub async fn create_pdu_session(
         smf_uri: Some(format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id)),
         pdu_session_id: payload.pdu_session_id,
         s_nssai: payload.s_nssai.clone(),
+        up_cnx_state,
         enable_pause_charging: Some(false),
         ue_ipv4_address: ipv4_addr,
         ue_ipv6_prefix: ipv6_addr,
@@ -1025,6 +1058,8 @@ async fn handle_inter_smf_handover_create(
     let mut sm_context = SmContext {
         id: new_id.clone(),
         supi: payload.supi.clone(),
+        gpsi: payload.gpsi.clone(),
+        pei: payload.pei.clone(),
         pdu_session_id: source_ctx.pdu_session_id,
         dnn: source_ctx.dnn.clone(),
         s_nssai: source_ctx.s_nssai.clone(),
@@ -1053,6 +1088,8 @@ async fn handle_inter_smf_handover_create(
         upf_tunnel_ipv4: None,
         serving_nf_id: payload.serving_nf_id.clone(),
         sm_context_status_uri: payload.sm_context_status_uri.clone(),
+        guami: payload.guami.clone(),
+        serving_network: payload.serving_network.clone(),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
@@ -1163,6 +1200,7 @@ async fn handle_inter_smf_handover_create(
         smf_uri: Some(format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id)),
         pdu_session_id: sm_context.pdu_session_id,
         s_nssai: sm_context.s_nssai.clone(),
+        up_cnx_state: Some(UpCnxState::Activating),
         enable_pause_charging: Some(false),
         ue_ipv4_address: sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
         ue_ipv6_prefix: sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
