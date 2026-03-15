@@ -123,6 +123,7 @@ pub enum NgapIeType {
     PathSwitchReqAck,
     HandoverCmd,
     HandoverPrepFail,
+    HandoverReqAck,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
