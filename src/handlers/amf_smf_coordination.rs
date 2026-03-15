@@ -12,6 +12,10 @@ use crate::types::amf_smf_coordination::{
     SmContextReleaseNotification, SmContextReleaseResponse,
 };
 
+// NON-STANDARD: This endpoint does not exist in TS 29.502.
+// It is a custom inter-SMF coordination API used during AMF-driven context transfer.
+// In 3GPP, SM context transfer is initiated by the target SMF calling
+// POST /sm-contexts (with smfTransferInd=true) on the source SMF.
 pub async fn retrieve_sm_context_for_amf(
     State(state): State<AppState>,
     Json(payload): Json<SmContextRetrieveRequest>,
@@ -66,6 +70,10 @@ pub async fn retrieve_sm_context_for_amf(
     }
 }
 
+// NON-STANDARD: This endpoint does not exist in TS 29.502.
+// It is a custom notification for the source SMF to clean up after a context
+// transfer completes. In 3GPP, this is handled by the target SMF calling
+// POST /sm-contexts/{ref}/release on the source SMF with cause=SMF_CONTEXT_TRANSFER.
 pub async fn release_sm_context_on_transfer(
     State(state): State<AppState>,
     Json(payload): Json<SmContextReleaseNotification>,

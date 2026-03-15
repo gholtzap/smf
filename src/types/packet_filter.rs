@@ -37,6 +37,7 @@ impl PacketFilterDirection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketFilterComponent {
+    MatchAll,
     ProtocolIdentifier(u8),
     SingleLocalPort(u16),
     LocalPortRange { low: u16, high: u16 },
@@ -49,6 +50,216 @@ pub enum PacketFilterComponent {
     SecurityParameterIndex(u32),
     TypeOfService { tos: u8, mask: u8 },
     FlowLabel(u32),
+}
+
+const NAS_PF_MATCH_ALL: u8 = 0x01;
+const NAS_PF_IPV4_REMOTE: u8 = 0x10;
+const NAS_PF_IPV4_LOCAL: u8 = 0x11;
+const NAS_PF_IPV6_REMOTE: u8 = 0x20;
+const NAS_PF_IPV6_REMOTE_PREFIX: u8 = 0x21;
+const NAS_PF_IPV6_LOCAL: u8 = 0x23;
+const NAS_PF_PROTOCOL_ID: u8 = 0x30;
+const NAS_PF_SINGLE_LOCAL_PORT: u8 = 0x40;
+const NAS_PF_LOCAL_PORT_RANGE: u8 = 0x41;
+const NAS_PF_SINGLE_REMOTE_PORT: u8 = 0x50;
+const NAS_PF_REMOTE_PORT_RANGE: u8 = 0x51;
+const NAS_PF_SPI: u8 = 0x60;
+const NAS_PF_TOS: u8 = 0x70;
+const NAS_PF_FLOW_LABEL: u8 = 0x80;
+
+impl PacketFilterComponent {
+    pub fn parse_nas_content(content: &[u8]) -> Result<Vec<PacketFilterComponent>, String> {
+        let mut components = Vec::new();
+        let mut pos = 0;
+        while pos < content.len() {
+            let component_type = content[pos];
+            pos += 1;
+            match component_type {
+                NAS_PF_MATCH_ALL => {
+                    components.push(PacketFilterComponent::MatchAll);
+                }
+                NAS_PF_IPV4_REMOTE => {
+                    if pos + 8 > content.len() {
+                        return Err("IPv4 remote address truncated".to_string());
+                    }
+                    let addr = Ipv4Addr::new(content[pos], content[pos + 1], content[pos + 2], content[pos + 3]);
+                    let mask = Ipv4Addr::new(content[pos + 4], content[pos + 5], content[pos + 6], content[pos + 7]);
+                    components.push(PacketFilterComponent::RemoteIpv4Address { address: addr, mask });
+                    pos += 8;
+                }
+                NAS_PF_IPV4_LOCAL => {
+                    if pos + 8 > content.len() {
+                        return Err("IPv4 local address truncated".to_string());
+                    }
+                    let addr = Ipv4Addr::new(content[pos], content[pos + 1], content[pos + 2], content[pos + 3]);
+                    let mask = Ipv4Addr::new(content[pos + 4], content[pos + 5], content[pos + 6], content[pos + 7]);
+                    components.push(PacketFilterComponent::LocalIpv4Address { address: addr, mask });
+                    pos += 8;
+                }
+                NAS_PF_IPV6_REMOTE | NAS_PF_IPV6_REMOTE_PREFIX => {
+                    if pos + 17 > content.len() {
+                        return Err("IPv6 remote address truncated".to_string());
+                    }
+                    let mut octets = [0u8; 16];
+                    octets.copy_from_slice(&content[pos..pos + 16]);
+                    let addr = Ipv6Addr::from(octets);
+                    let prefix_length = content[pos + 16];
+                    components.push(PacketFilterComponent::RemoteIpv6Address { address: addr, prefix_length });
+                    pos += 17;
+                }
+                NAS_PF_IPV6_LOCAL => {
+                    if pos + 17 > content.len() {
+                        return Err("IPv6 local address truncated".to_string());
+                    }
+                    let mut octets = [0u8; 16];
+                    octets.copy_from_slice(&content[pos..pos + 16]);
+                    let addr = Ipv6Addr::from(octets);
+                    let prefix_length = content[pos + 16];
+                    components.push(PacketFilterComponent::LocalIpv6Address { address: addr, prefix_length });
+                    pos += 17;
+                }
+                NAS_PF_PROTOCOL_ID => {
+                    if pos >= content.len() {
+                        return Err("Protocol identifier truncated".to_string());
+                    }
+                    components.push(PacketFilterComponent::ProtocolIdentifier(content[pos]));
+                    pos += 1;
+                }
+                NAS_PF_SINGLE_LOCAL_PORT => {
+                    if pos + 2 > content.len() {
+                        return Err("Single local port truncated".to_string());
+                    }
+                    let port = u16::from_be_bytes([content[pos], content[pos + 1]]);
+                    components.push(PacketFilterComponent::SingleLocalPort(port));
+                    pos += 2;
+                }
+                NAS_PF_LOCAL_PORT_RANGE => {
+                    if pos + 4 > content.len() {
+                        return Err("Local port range truncated".to_string());
+                    }
+                    let low = u16::from_be_bytes([content[pos], content[pos + 1]]);
+                    let high = u16::from_be_bytes([content[pos + 2], content[pos + 3]]);
+                    components.push(PacketFilterComponent::LocalPortRange { low, high });
+                    pos += 4;
+                }
+                NAS_PF_SINGLE_REMOTE_PORT => {
+                    if pos + 2 > content.len() {
+                        return Err("Single remote port truncated".to_string());
+                    }
+                    let port = u16::from_be_bytes([content[pos], content[pos + 1]]);
+                    components.push(PacketFilterComponent::SingleRemotePort(port));
+                    pos += 2;
+                }
+                NAS_PF_REMOTE_PORT_RANGE => {
+                    if pos + 4 > content.len() {
+                        return Err("Remote port range truncated".to_string());
+                    }
+                    let low = u16::from_be_bytes([content[pos], content[pos + 1]]);
+                    let high = u16::from_be_bytes([content[pos + 2], content[pos + 3]]);
+                    components.push(PacketFilterComponent::RemotePortRange { low, high });
+                    pos += 4;
+                }
+                NAS_PF_SPI => {
+                    if pos + 4 > content.len() {
+                        return Err("SPI truncated".to_string());
+                    }
+                    let spi = u32::from_be_bytes([content[pos], content[pos + 1], content[pos + 2], content[pos + 3]]);
+                    components.push(PacketFilterComponent::SecurityParameterIndex(spi));
+                    pos += 4;
+                }
+                NAS_PF_TOS => {
+                    if pos + 2 > content.len() {
+                        return Err("ToS truncated".to_string());
+                    }
+                    components.push(PacketFilterComponent::TypeOfService { tos: content[pos], mask: content[pos + 1] });
+                    pos += 2;
+                }
+                NAS_PF_FLOW_LABEL => {
+                    if pos + 3 > content.len() {
+                        return Err("Flow label truncated".to_string());
+                    }
+                    let label = ((content[pos] as u32 & 0x0F) << 16)
+                        | ((content[pos + 1] as u32) << 8)
+                        | (content[pos + 2] as u32);
+                    components.push(PacketFilterComponent::FlowLabel(label));
+                    pos += 3;
+                }
+                _ => {
+                    return Err(format!("Unknown packet filter component type: {:#x}", component_type));
+                }
+            }
+        }
+        Ok(components)
+    }
+
+    pub fn encode_nas_content(components: &[PacketFilterComponent]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for component in components {
+            match component {
+                PacketFilterComponent::MatchAll => {
+                    out.push(NAS_PF_MATCH_ALL);
+                }
+                PacketFilterComponent::ProtocolIdentifier(proto) => {
+                    out.push(NAS_PF_PROTOCOL_ID);
+                    out.push(*proto);
+                }
+                PacketFilterComponent::RemoteIpv4Address { address, mask } => {
+                    out.push(NAS_PF_IPV4_REMOTE);
+                    out.extend_from_slice(&address.octets());
+                    out.extend_from_slice(&mask.octets());
+                }
+                PacketFilterComponent::LocalIpv4Address { address, mask } => {
+                    out.push(NAS_PF_IPV4_LOCAL);
+                    out.extend_from_slice(&address.octets());
+                    out.extend_from_slice(&mask.octets());
+                }
+                PacketFilterComponent::RemoteIpv6Address { address, prefix_length } => {
+                    out.push(NAS_PF_IPV6_REMOTE_PREFIX);
+                    out.extend_from_slice(&address.octets());
+                    out.push(*prefix_length);
+                }
+                PacketFilterComponent::LocalIpv6Address { address, prefix_length } => {
+                    out.push(NAS_PF_IPV6_LOCAL);
+                    out.extend_from_slice(&address.octets());
+                    out.push(*prefix_length);
+                }
+                PacketFilterComponent::SingleLocalPort(port) => {
+                    out.push(NAS_PF_SINGLE_LOCAL_PORT);
+                    out.extend_from_slice(&port.to_be_bytes());
+                }
+                PacketFilterComponent::LocalPortRange { low, high } => {
+                    out.push(NAS_PF_LOCAL_PORT_RANGE);
+                    out.extend_from_slice(&low.to_be_bytes());
+                    out.extend_from_slice(&high.to_be_bytes());
+                }
+                PacketFilterComponent::SingleRemotePort(port) => {
+                    out.push(NAS_PF_SINGLE_REMOTE_PORT);
+                    out.extend_from_slice(&port.to_be_bytes());
+                }
+                PacketFilterComponent::RemotePortRange { low, high } => {
+                    out.push(NAS_PF_REMOTE_PORT_RANGE);
+                    out.extend_from_slice(&low.to_be_bytes());
+                    out.extend_from_slice(&high.to_be_bytes());
+                }
+                PacketFilterComponent::SecurityParameterIndex(spi) => {
+                    out.push(NAS_PF_SPI);
+                    out.extend_from_slice(&spi.to_be_bytes());
+                }
+                PacketFilterComponent::TypeOfService { tos, mask } => {
+                    out.push(NAS_PF_TOS);
+                    out.push(*tos);
+                    out.push(*mask);
+                }
+                PacketFilterComponent::FlowLabel(label) => {
+                    out.push(NAS_PF_FLOW_LABEL);
+                    out.push(((label >> 16) & 0x0F) as u8);
+                    out.push(((label >> 8) & 0xFF) as u8);
+                    out.push((label & 0xFF) as u8);
+                }
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +464,7 @@ impl PacketFilter {
 
     fn component_matches(&self, component: &PacketFilterComponent, packet: &PacketInfo) -> bool {
         match component {
+            PacketFilterComponent::MatchAll => true,
             PacketFilterComponent::ProtocolIdentifier(proto) => {
                 packet.protocol.map_or(false, |p| p == *proto)
             }

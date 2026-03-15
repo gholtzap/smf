@@ -1,5 +1,6 @@
 use crate::models::SmContext;
-use crate::types::{PacketFilter, PacketFilterComponent, PacketFilterDirection};
+use crate::types::{PacketFilter, PacketFilterComponent, PacketFilterDirection, QosRule};
+use crate::types::nas::{NasQosRule, QosRuleOperationCode};
 use mongodb::{Collection, Database};
 use mongodb::bson::doc;
 use std::sync::Arc;
@@ -174,12 +175,11 @@ impl PacketFilterManager {
     }
 
     fn validate_packet_filter(&self, packet_filter: &PacketFilter) -> Result<(), String> {
-        if packet_filter.packet_filter_id == 0 {
-            return Err("Packet filter ID must be greater than 0".to_string());
-        }
-
-        if packet_filter.precedence == 0 {
-            return Err("Packet filter precedence must be greater than 0".to_string());
+        if packet_filter.packet_filter_id > 15 {
+            return Err(format!(
+                "Packet filter ID must be 0-15, got {}",
+                packet_filter.packet_filter_id
+            ));
         }
 
         if packet_filter.components.is_empty() {
@@ -251,7 +251,7 @@ impl PacketFilterManager {
         &self,
         existing_packet_filters: &[PacketFilter],
     ) -> Option<u8> {
-        for id in 1..=255 {
+        for id in 0..=15 {
             if !existing_packet_filters
                 .iter()
                 .any(|pf| pf.packet_filter_id == id)
@@ -287,4 +287,186 @@ impl PacketFilterManager {
             .cloned()
             .collect()
     }
+
+    pub async fn process_nas_qos_rules(
+        &self,
+        sm_context_id: &str,
+        nas_rules: &[NasQosRule],
+    ) -> Result<NasQosRuleResult, String> {
+        let collection: Collection<SmContext> = self.db.collection("sm_contexts");
+        let sm_context = collection
+            .find_one(doc! { "_id": sm_context_id })
+            .await
+            .map_err(|e| format!("Failed to fetch SM context: {}", e))?
+            .ok_or_else(|| format!("SM context {} not found", sm_context_id))?;
+
+        let mut packet_filters = sm_context.packet_filters.clone();
+        let mut qos_rules = sm_context.qos_rules.clone();
+        let mut added_pf_ids: Vec<u8> = Vec::new();
+        let mut removed_pf_ids: Vec<u8> = Vec::new();
+
+        for nas_rule in nas_rules {
+            match nas_rule.operation_code {
+                QosRuleOperationCode::CreateNewQosRule => {
+                    if qos_rules.iter().any(|r| r.qos_rule_id == nas_rule.rule_id) {
+                        return Err(format!("QoS rule {} already exists", nas_rule.rule_id));
+                    }
+                    let mut pf_ids = Vec::new();
+                    for nas_pf in &nas_rule.packet_filters {
+                        if nas_pf.identifier > 15 {
+                            return Err(format!("Packet filter ID {} exceeds maximum 15", nas_pf.identifier));
+                        }
+                        if packet_filters.iter().any(|pf| pf.packet_filter_id == nas_pf.identifier) {
+                            return Err(format!("Packet filter {} already exists", nas_pf.identifier));
+                        }
+                        let components = PacketFilterComponent::parse_nas_content(&nas_pf.content)?;
+                        let pf = PacketFilter::new(
+                            nas_pf.identifier,
+                            nas_pf.direction,
+                            nas_rule.precedence,
+                            components,
+                            Some(nas_rule.qfi),
+                        );
+                        packet_filters.push(pf);
+                        pf_ids.push(nas_pf.identifier);
+                        added_pf_ids.push(nas_pf.identifier);
+                    }
+                    let qos_rule = QosRule::new(
+                        nas_rule.rule_id,
+                        nas_rule.precedence,
+                        false,
+                        nas_rule.qfi,
+                        pf_ids,
+                        nas_rule.dqr,
+                    );
+                    qos_rules.push(qos_rule);
+                }
+                QosRuleOperationCode::DeleteExistingQosRule => {
+                    let rule_idx = qos_rules
+                        .iter()
+                        .position(|r| r.qos_rule_id == nas_rule.rule_id)
+                        .ok_or_else(|| format!("QoS rule {} not found", nas_rule.rule_id))?;
+                    let removed_rule = qos_rules.remove(rule_idx);
+                    for pf_id in &removed_rule.packet_filter_ids {
+                        packet_filters.retain(|pf| pf.packet_filter_id != *pf_id);
+                        removed_pf_ids.push(*pf_id);
+                    }
+                }
+                QosRuleOperationCode::ModifyAndAddPacketFilters => {
+                    let rule = qos_rules
+                        .iter_mut()
+                        .find(|r| r.qos_rule_id == nas_rule.rule_id)
+                        .ok_or_else(|| format!("QoS rule {} not found", nas_rule.rule_id))?;
+                    for nas_pf in &nas_rule.packet_filters {
+                        if nas_pf.identifier > 15 {
+                            return Err(format!("Packet filter ID {} exceeds maximum 15", nas_pf.identifier));
+                        }
+                        if packet_filters.iter().any(|pf| pf.packet_filter_id == nas_pf.identifier) {
+                            return Err(format!("Packet filter {} already exists", nas_pf.identifier));
+                        }
+                        let components = PacketFilterComponent::parse_nas_content(&nas_pf.content)?;
+                        let pf = PacketFilter::new(
+                            nas_pf.identifier,
+                            nas_pf.direction,
+                            nas_rule.precedence,
+                            components,
+                            Some(nas_rule.qfi),
+                        );
+                        packet_filters.push(pf);
+                        rule.packet_filter_ids.push(nas_pf.identifier);
+                        added_pf_ids.push(nas_pf.identifier);
+                    }
+                    rule.precedence = nas_rule.precedence;
+                    rule.qfi = nas_rule.qfi;
+                }
+                QosRuleOperationCode::ModifyAndReplaceAllPacketFilters => {
+                    let rule = qos_rules
+                        .iter_mut()
+                        .find(|r| r.qos_rule_id == nas_rule.rule_id)
+                        .ok_or_else(|| format!("QoS rule {} not found", nas_rule.rule_id))?;
+                    for old_pf_id in &rule.packet_filter_ids {
+                        packet_filters.retain(|pf| pf.packet_filter_id != *old_pf_id);
+                        removed_pf_ids.push(*old_pf_id);
+                    }
+                    rule.packet_filter_ids.clear();
+                    for nas_pf in &nas_rule.packet_filters {
+                        if nas_pf.identifier > 15 {
+                            return Err(format!("Packet filter ID {} exceeds maximum 15", nas_pf.identifier));
+                        }
+                        let components = PacketFilterComponent::parse_nas_content(&nas_pf.content)?;
+                        let pf = PacketFilter::new(
+                            nas_pf.identifier,
+                            nas_pf.direction,
+                            nas_rule.precedence,
+                            components,
+                            Some(nas_rule.qfi),
+                        );
+                        packet_filters.push(pf);
+                        rule.packet_filter_ids.push(nas_pf.identifier);
+                        added_pf_ids.push(nas_pf.identifier);
+                    }
+                    rule.precedence = nas_rule.precedence;
+                    rule.qfi = nas_rule.qfi;
+                }
+                QosRuleOperationCode::ModifyAndDeletePacketFilters => {
+                    let rule = qos_rules
+                        .iter_mut()
+                        .find(|r| r.qos_rule_id == nas_rule.rule_id)
+                        .ok_or_else(|| format!("QoS rule {} not found", nas_rule.rule_id))?;
+                    for nas_pf in &nas_rule.packet_filters {
+                        rule.packet_filter_ids.retain(|id| *id != nas_pf.identifier);
+                        packet_filters.retain(|pf| pf.packet_filter_id != nas_pf.identifier);
+                        removed_pf_ids.push(nas_pf.identifier);
+                    }
+                    rule.precedence = nas_rule.precedence;
+                    rule.qfi = nas_rule.qfi;
+                }
+                QosRuleOperationCode::ModifyWithoutChangingPacketFilters => {
+                    let rule = qos_rules
+                        .iter_mut()
+                        .find(|r| r.qos_rule_id == nas_rule.rule_id)
+                        .ok_or_else(|| format!("QoS rule {} not found", nas_rule.rule_id))?;
+                    rule.precedence = nas_rule.precedence;
+                    rule.qfi = nas_rule.qfi;
+                }
+            }
+        }
+
+        let pf_bson = mongodb::bson::to_bson(&packet_filters)
+            .map_err(|e| format!("Failed to serialize packet filters: {}", e))?;
+        let qr_bson = mongodb::bson::to_bson(&qos_rules)
+            .map_err(|e| format!("Failed to serialize QoS rules: {}", e))?;
+
+        collection
+            .update_one(
+                doc! { "_id": sm_context_id },
+                doc! {
+                    "$set": {
+                        "packet_filters": pf_bson,
+                        "qos_rules": qr_bson,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }
+                },
+            )
+            .await
+            .map_err(|e| format!("Failed to update SM context: {}", e))?;
+
+        info!(
+            "Processed {} NAS QoS rules for SM context {}: added {} PFs, removed {} PFs",
+            nas_rules.len(),
+            sm_context_id,
+            added_pf_ids.len(),
+            removed_pf_ids.len()
+        );
+
+        Ok(NasQosRuleResult {
+            added_pf_ids,
+            removed_pf_ids,
+        })
+    }
+}
+
+pub struct NasQosRuleResult {
+    pub added_pf_ids: Vec<u8>,
+    pub removed_pf_ids: Vec<u8>,
 }

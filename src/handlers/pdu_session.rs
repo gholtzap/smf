@@ -1926,8 +1926,6 @@ async fn handle_ue_modification_request(
     sm_context: SmContext,
     n1_data: &[u8],
 ) -> Result<Json<PduSessionUpdatedData>, AppError> {
-    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
     let mod_request = NasParser::parse_pdu_session_modification_request(n1_data)
         .map_err(AppError::ValidationError)?;
 
@@ -1963,6 +1961,49 @@ async fn handle_ue_modification_request(
             up_cnx_state: None,
             data_forwarding: None,
         }));
+    }
+
+    let pf_mgr = crate::services::packet_filter::PacketFilterManager::new(Arc::new(state.db.clone()));
+    if !mod_request.requested_qos_rules.is_empty() {
+        match pf_mgr.process_nas_qos_rules(&sm_context_ref, &mod_request.requested_qos_rules).await {
+            Ok(result) => {
+                tracing::info!(
+                    "Processed QoS rules for SUPI: {}: added {} PFs, removed {} PFs",
+                    sm_context.supi,
+                    result.added_pf_ids.len(),
+                    result.removed_pf_ids.len()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to process QoS rules for SUPI: {}: {}",
+                    sm_context.supi,
+                    e
+                );
+                let reject = NasParser::build_pdu_session_modification_reject(
+                    mod_request.pdu_session_id,
+                    mod_request.pti,
+                    GsmCause::SemanticErrorInQosOperation,
+                );
+                let encoded = general_purpose::STANDARD.encode(&reject);
+                return Ok(Json(PduSessionUpdatedData {
+                    n1_sm_info_to_ue: Some(RefToBinaryData { content_id: encoded }),
+                    n1_sm_msg: None,
+                    n2_sm_info: None,
+                    n2_sm_info_type: None,
+                    eps_bearer_info: None,
+                    supported_features: None,
+                    ho_state: None,
+                    session_ambr: sm_context.session_ambr.clone(),
+                    cn_tunnel_info: None,
+                    additional_cn_tunnel_info: None,
+                    qos_flows_add_mod_list: None,
+                    qos_flows_rel_list: None,
+                    up_cnx_state: None,
+                    data_forwarding: None,
+                }));
+            }
+        }
     }
 
     let qos_mgr = QosFlowManager::new(Arc::new(state.db.clone()));
@@ -2036,14 +2077,6 @@ async fn handle_ue_modification_request(
     );
     let encoded_n1 = general_purpose::STANDARD.encode(&n1_command);
 
-    collection
-        .update_one(
-            doc! { "_id": &sm_context_ref },
-            doc! { "$set": { "updated_at": mongodb::bson::DateTime::now() } },
-        )
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
     let qos_flows_add_mod_list = if !add_qos_flows.is_empty() {
         Some(add_qos_flows.iter().map(|f| QosFlowItem { qfi: f.qfi, qos_profile: None }).collect())
     } else {
@@ -2056,7 +2089,7 @@ async fn handle_ue_modification_request(
     };
 
     tracing::info!(
-        "UE-initiated modification accepted for SUPI: {}, PSI: {}, added: {}, removed: {}",
+        "UE-initiated modification accepted for SUPI: {}, PSI: {}, QoS flows added: {}, removed: {}",
         sm_context.supi,
         sm_context.pdu_session_id,
         add_qos_flows.len(),
@@ -2775,6 +2808,10 @@ async fn handle_ho_prepared(
     }))
 }
 
+// NON-STANDARD: This endpoint does not exist in TS 29.502.
+// In 3GPP, handover request ack is handled via POST /sm-contexts/{ref}/modify
+// with n2SmInfoType=HANDOVER_REQ_ACK. This dedicated endpoint exists because
+// the modify handler was split for readability. The AMF should call /modify instead.
 pub async fn handle_handover_request_ack(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
@@ -3170,6 +3207,10 @@ async fn handle_source_smf_ho_release(
     }))
 }
 
+// NON-STANDARD: This endpoint does not exist in TS 29.502.
+// In 3GPP, handover cancel is handled via POST /sm-contexts/{ref}/modify
+// with hoState=CANCELLED. This dedicated endpoint exists because the modify
+// handler was split for readability. The AMF should call /modify instead.
 pub async fn handle_handover_cancel(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
@@ -3283,6 +3324,10 @@ async fn cancel_handover_internal(
 }
 
 
+// NON-STANDARD: This endpoint does not exist in TS 29.502.
+// In 3GPP, handover notify is handled via POST /sm-contexts/{ref}/modify
+// with hoState=COMPLETED. This dedicated endpoint exists because the modify
+// handler was split for readability. The AMF should call /modify instead.
 pub async fn handle_handover_notify(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
@@ -3441,4 +3486,63 @@ pub async fn handle_handover_notify(
         up_cnx_state: None,
         data_forwarding: None,
     }))
+}
+
+fn not_implemented_response(operation: &str) -> Response {
+    let body = serde_json::json!({
+        "type": "https://httpstatuses.io/501",
+        "title": "Not Implemented",
+        "status": 501,
+        "detail": format!("{} is not yet implemented", operation),
+        "cause": "NOT_IMPLEMENTED"
+    });
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        [(header::CONTENT_TYPE, "application/problem+json")],
+        Json(body),
+    ).into_response()
+}
+
+pub async fn send_mo_data(
+    State(_state): State<AppState>,
+    Path(_sm_context_ref): Path<String>,
+) -> Response {
+    not_implemented_response("SendMoData")
+}
+
+pub async fn create_pdu_session_hsmf(
+    State(_state): State<AppState>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Response {
+    not_implemented_response("PostPduSessions (H-SMF create)")
+}
+
+pub async fn modify_pdu_session_hsmf(
+    State(_state): State<AppState>,
+    Path(_pdu_session_ref): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Response {
+    not_implemented_response("UpdatePduSession (H-SMF modify)")
+}
+
+pub async fn release_pdu_session_hsmf(
+    State(_state): State<AppState>,
+    Path(_pdu_session_ref): Path<String>,
+) -> Response {
+    not_implemented_response("ReleasePduSession (H-SMF release)")
+}
+
+pub async fn retrieve_pdu_session_hsmf(
+    State(_state): State<AppState>,
+    Path(_pdu_session_ref): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Response {
+    not_implemented_response("RetrievePduSession (H-SMF retrieve)")
+}
+
+pub async fn transfer_mo_data_hsmf(
+    State(_state): State<AppState>,
+    Path(_pdu_session_ref): Path<String>,
+) -> Response {
+    not_implemented_response("TransferMoData (H-SMF)")
 }
