@@ -6,7 +6,6 @@
   POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/transfer-mo-data,handlers::pdu_session::transfer_mo_data_hsmf (stub)
 
   Nsmf_PDUSession — Non-standard (handover)
-  POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-notify,handlers::pdu_session::handle_handover_notify
   POST,/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-cancel,handlers::pdu_session::handle_handover_cancel
 
   Nsmf_PDUSession — Non-standard (AMF-SMF coordination)

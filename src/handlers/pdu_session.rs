@@ -3477,37 +3477,41 @@ async fn handle_ho_completed(
     update_doc.insert("source_an_tunnel_info", mongodb::bson::Bson::Null);
 
     let an_tunnel_info = payload.an_tunnel_info.as_ref()
-        .or(sm_context.an_tunnel_info.as_ref());
+        .or(sm_context.an_tunnel_info.as_ref())
+        .ok_or_else(|| AppError::ValidationError(
+            "No AN tunnel info available for handover completion: not in request and not stored from Prepared phase".to_string()
+        ))?;
 
-    if let Some(an_tunnel_info) = an_tunnel_info {
-        if payload.an_tunnel_info.is_some() {
-            update_doc.insert(
-                "an_tunnel_info",
-                mongodb::bson::to_bson(an_tunnel_info)
-                    .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-            );
-        }
+    if payload.an_tunnel_info.is_some() {
+        update_doc.insert(
+            "an_tunnel_info",
+            mongodb::bson::to_bson(an_tunnel_info)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
 
-        if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-            if let Some(an_ipv4_str) = an_tunnel_info.ipv4_addr.as_ref() {
-                let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
-                    AppError::ValidationError(format!("Invalid AN tunnel IPv4 address '{}': {}", an_ipv4_str, e))
-                })?;
-                PfcpSessionManager::modify_session_for_handover(
-                    pfcp_client,
-                    pfcp_session_id,
-                    an_ipv4,
-                    &an_tunnel_info.gtp_teid,
-                    sm_context.up_security_context.as_ref(),
-                    true,
-                ).await.map_err(|e| {
-                    AppError::ValidationError(format!(
-                        "Failed to update PFCP session for handover completion SUPI: {}, PSI: {}: {}",
-                        sm_context.supi, sm_context.pdu_session_id, e
-                    ))
-                })?;
-            }
-        }
+    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        let an_ipv4_str = an_tunnel_info.ipv4_addr.as_ref().ok_or_else(|| {
+            AppError::ValidationError(
+                "AN tunnel info missing IPv4 address for PFCP update".to_string()
+            )
+        })?;
+        let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid AN tunnel IPv4 address '{}': {}", an_ipv4_str, e))
+        })?;
+        PfcpSessionManager::modify_session_for_handover(
+            pfcp_client,
+            pfcp_session_id,
+            an_ipv4,
+            &an_tunnel_info.gtp_teid,
+            sm_context.up_security_context.as_ref(),
+            true,
+        ).await.map_err(|e| {
+            AppError::ValidationError(format!(
+                "Failed to update PFCP session for handover completion SUPI: {}, PSI: {}: {}",
+                sm_context.supi, sm_context.pdu_session_id, e
+            ))
+        })?;
     }
 
     if let Some(ref ue_location) = payload.ue_location {
@@ -3517,6 +3521,8 @@ async fn handle_ho_completed(
                 .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         );
     }
+
+    let mut effective_pdu_address = sm_context.pdu_address.clone();
 
     if sm_context.ssc_mode == SscMode::Mode2 {
         let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
@@ -3530,6 +3536,7 @@ async fn handle_ho_completed(
             &dnn_config.ip_pool_name,
         ).await.map_err(AppError::ValidationError)?;
 
+        effective_pdu_address = Some(new_pdu_address.clone());
         update_doc.insert(
             "pdu_address",
             mongodb::bson::to_bson(&new_pdu_address)
@@ -3547,6 +3554,7 @@ async fn handle_ho_completed(
             &dnn_config.ip_pool_name,
         ).await.map_err(AppError::ValidationError)?;
 
+        effective_pdu_address = Some(new_pdu_address.clone());
         update_doc.insert(
             "pdu_address",
             mongodb::bson::to_bson(&new_pdu_address)
@@ -3569,8 +3577,8 @@ async fn handle_ho_completed(
         sm_context.pdu_session_id,
         Some(sm_context.dnn.clone()),
         Some(sm_context.s_nssai.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        effective_pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        effective_pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
         Some(sm_context_ref.clone()),
         None,
     ).await;
@@ -3886,6 +3894,8 @@ pub async fn handle_handover_notify(
         );
     }
 
+    let mut effective_pdu_address = sm_context.pdu_address.clone();
+
     if sm_context.ssc_mode == SscMode::Mode2 {
         let dnn_config = state.dnn_selector.validate_dnn(&sm_context.dnn)
             .map_err(AppError::ValidationError)?;
@@ -3898,6 +3908,7 @@ pub async fn handle_handover_notify(
             &dnn_config.ip_pool_name,
         ).await.map_err(AppError::ValidationError)?;
 
+        effective_pdu_address = Some(new_pdu_address.clone());
         update_doc.insert(
             "pdu_address",
             mongodb::bson::to_bson(&new_pdu_address)
@@ -3915,6 +3926,7 @@ pub async fn handle_handover_notify(
             &dnn_config.ip_pool_name,
         ).await.map_err(AppError::ValidationError)?;
 
+        effective_pdu_address = Some(new_pdu_address.clone());
         update_doc.insert(
             "pdu_address",
             mongodb::bson::to_bson(&new_pdu_address)
@@ -3937,8 +3949,8 @@ pub async fn handle_handover_notify(
         sm_context.pdu_session_id,
         Some(sm_context.dnn.clone()),
         Some(sm_context.s_nssai.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
-        sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        effective_pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        effective_pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
         Some(sm_context_ref.clone()),
         None,
     ).await;
