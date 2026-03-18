@@ -1093,6 +1093,9 @@ async fn handle_inter_smf_handover_create(
         sm_context_status_uri: payload.sm_context_status_uri.clone(),
         guami: payload.guami.clone(),
         serving_network: payload.serving_network.clone(),
+        small_data_rate_status: None,
+        dnai: None,
+        notification_info_list: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
@@ -4308,11 +4311,30 @@ pub async fn release_pdu_session_hsmf(
 }
 
 pub async fn retrieve_pdu_session_hsmf(
-    State(_state): State<AppState>,
-    Path(_pdu_session_ref): Path<String>,
-    Json(_payload): Json<serde_json::Value>,
-) -> Response {
-    not_implemented_response("RetrievePduSession (H-SMF retrieve)")
+    State(state): State<AppState>,
+    Path(pdu_session_ref): Path<String>,
+    Json(payload): Json<crate::types::hsmf::HsmfRetrieveData>,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &pdu_session_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("PDU Session {} not found", pdu_session_ref)))?;
+
+    tracing::info!(
+        "H-SMF RetrievePduSession - SUPI: {}, PSI: {}, Ref: {}, smallDataRateStatusReq: {}, contextType: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        pdu_session_ref,
+        payload.small_data_rate_status_req,
+        payload.pdu_session_context_type
+    );
+
+    let retrieved = crate::types::hsmf::HsmfRetrievedData::from_context(&sm_context, &payload);
+
+    Ok((StatusCode::OK, Json(retrieved)).into_response())
 }
 
 pub async fn transfer_mo_data_hsmf(

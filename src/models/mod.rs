@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::types::{Guami, HoState, N2SmInfo, PacketFilter, PduAddress, PduSessionType, PlmnId, QosFlow, QosRule, RefToBinaryData, SmContextState, Snssai, SscMode, TargetId};
 use crate::types::up_security::{UpSecurityContext, UeSecurityCapabilities};
 use crate::types::sm_context_transfer::{SmContextData, TransferCause};
+use crate::types::hsmf::NotificationInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -299,6 +300,12 @@ pub struct SmContext {
     pub guami: Option<Guami>,
     #[serde(default)]
     pub serving_network: Option<PlmnId>,
+    #[serde(default)]
+    pub small_data_rate_status: Option<SmallDataRateStatus>,
+    #[serde(default)]
+    pub dnai: Option<String>,
+    #[serde(default)]
+    pub notification_info_list: Option<Vec<NotificationInfo>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -347,6 +354,9 @@ impl SmContext {
             sm_context_status_uri: create_data.sm_context_status_uri.clone(),
             guami: create_data.guami.clone(),
             serving_network: create_data.serving_network.clone(),
+            small_data_rate_status: None,
+            dnai: None,
+            notification_info_list: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
