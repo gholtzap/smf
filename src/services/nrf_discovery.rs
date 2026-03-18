@@ -111,36 +111,144 @@ impl NrfDiscoveryService {
         }
     }
 
+    fn extract_nf_instance_id(nf_instance_uri: &str) -> Option<&str> {
+        nf_instance_uri.rsplit('/').next().filter(|s| !s.is_empty())
+    }
+
     pub async fn handle_nf_status_notification(&self, notification: NotificationData) -> Result<()> {
-        tracing::info!("Received NF status notification: {:?}", notification.event);
+        tracing::info!(
+            "NF status notification: event={:?}, uri={}",
+            notification.event,
+            notification.nf_instance_uri
+        );
 
-        if let Some(profile) = &notification.nf_profile {
-            let nf_type = profile.nf_type.clone();
-
-            match notification.event {
-                NotificationEventType::NfRegistered | NotificationEventType::NfProfileChanged => {
+        match notification.event {
+            NotificationEventType::NfRegistered => {
+                let profile = notification.nf_profile
+                    .ok_or_else(|| anyhow::anyhow!("NF_REGISTERED requires nfProfile"))?;
+                let nf_type = profile.nf_type.clone();
+                let mut cache = self.discovered_nfs.write().await;
+                let nf_list = cache.entry(nf_type.clone()).or_default();
+                if let Some(index) = nf_list.iter().position(|nf| nf.nf_instance_id == profile.nf_instance_id) {
+                    nf_list[index] = profile.clone();
+                    tracing::info!("Updated cached {:?} instance: {}", nf_type, profile.nf_instance_id);
+                } else {
+                    nf_list.push(profile.clone());
+                    tracing::info!("Added new cached {:?} instance: {}", nf_type, profile.nf_instance_id);
+                }
+            }
+            NotificationEventType::NfProfileChanged => {
+                if let Some(profile) = &notification.nf_profile {
+                    let nf_type = profile.nf_type.clone();
                     let mut cache = self.discovered_nfs.write().await;
-                    let nf_list = cache.entry(nf_type.clone()).or_insert_with(Vec::new);
-
+                    let nf_list = cache.entry(nf_type.clone()).or_default();
                     if let Some(index) = nf_list.iter().position(|nf| nf.nf_instance_id == profile.nf_instance_id) {
                         nf_list[index] = profile.clone();
-                        tracing::info!("Updated cached {:?} instance: {}", nf_type, profile.nf_instance_id);
+                        tracing::info!("Updated cached {:?} instance via full profile: {}", nf_type, profile.nf_instance_id);
                     } else {
                         nf_list.push(profile.clone());
-                        tracing::info!("Added new cached {:?} instance: {}", nf_type, profile.nf_instance_id);
+                        tracing::info!("Added new cached {:?} instance via profile change: {}", nf_type, profile.nf_instance_id);
                     }
+                } else if let Some(ref changes) = notification.profile_changes {
+                    let nf_id = Self::extract_nf_instance_id(&notification.nf_instance_uri);
+                    if let Some(nf_id) = nf_id {
+                        let mut cache = self.discovered_nfs.write().await;
+                        let mut found = false;
+                        for nf_list in cache.values_mut() {
+                            if let Some(profile) = nf_list.iter_mut().find(|nf| nf.nf_instance_id == nf_id) {
+                                Self::apply_profile_changes(profile, changes);
+                                found = true;
+                                tracing::info!("Applied {} profile changes to NF instance: {}", changes.len(), nf_id);
+                                break;
+                            }
+                        }
+                        if !found {
+                            tracing::warn!("NF_PROFILE_CHANGED with profileChanges for unknown NF: {}", nf_id);
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "NF_PROFILE_CHANGED without nfProfile or profileChanges for: {}",
+                        notification.nf_instance_uri
+                    );
                 }
-                NotificationEventType::NfDeregistered => {
+            }
+            NotificationEventType::NfDeregistered => {
+                if let Some(profile) = &notification.nf_profile {
+                    let nf_type = profile.nf_type.clone();
                     let mut cache = self.discovered_nfs.write().await;
                     if let Some(nf_list) = cache.get_mut(&nf_type) {
                         nf_list.retain(|nf| nf.nf_instance_id != profile.nf_instance_id);
                         tracing::info!("Removed cached {:?} instance: {}", nf_type, profile.nf_instance_id);
                     }
+                } else if let Some(nf_id) = Self::extract_nf_instance_id(&notification.nf_instance_uri) {
+                    let mut cache = self.discovered_nfs.write().await;
+                    let mut removed = false;
+                    for (nf_type, nf_list) in cache.iter_mut() {
+                        let before = nf_list.len();
+                        nf_list.retain(|nf| nf.nf_instance_id != nf_id);
+                        if nf_list.len() < before {
+                            tracing::info!("Removed cached {:?} instance via URI: {}", nf_type, nf_id);
+                            removed = true;
+                        }
+                    }
+                    if !removed {
+                        tracing::debug!("NF_DEREGISTERED for NF not in cache: {}", nf_id);
+                    }
                 }
+            }
+            NotificationEventType::SharedDataChanged => {
+                tracing::debug!(
+                    "Received SHARED_DATA_CHANGED notification (not applicable to SMF): {}",
+                    notification.nf_instance_uri
+                );
+            }
+            NotificationEventType::Unknown => {
+                tracing::warn!(
+                    "Received unknown NF status notification event type for: {}",
+                    notification.nf_instance_uri
+                );
             }
         }
 
         Ok(())
+    }
+
+    fn apply_profile_changes(profile: &mut NFProfile, changes: &[crate::types::ChangeItem]) {
+        for change in changes {
+            match change.op {
+                crate::types::ChangeOp::Replace => {
+                    if change.path == "/nfStatus" || change.path == "nfStatus" {
+                        if let Some(ref val) = change.new_value {
+                            if let Ok(status) = serde_json::from_value(val.clone()) {
+                                profile.nf_status = status;
+                            }
+                        }
+                    } else if change.path == "/load" || change.path == "load" {
+                        if let Some(ref val) = change.new_value {
+                            if let Some(load) = val.as_u64() {
+                                profile.load = Some(load as u16);
+                            }
+                        }
+                    } else if change.path == "/capacity" || change.path == "capacity" {
+                        if let Some(ref val) = change.new_value {
+                            if let Some(cap) = val.as_u64() {
+                                profile.capacity = Some(cap as u16);
+                            }
+                        }
+                    } else if change.path == "/priority" || change.path == "priority" {
+                        if let Some(ref val) = change.new_value {
+                            if let Some(pri) = val.as_u64() {
+                                profile.priority = Some(pri as u16);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    tracing::debug!("Unhandled profile change op {:?} for path: {}", change.op, change.path);
+                }
+            }
+        }
     }
 
     pub async fn get_all_cached_nfs(&self) -> HashMap<NfType, Vec<NFProfile>> {

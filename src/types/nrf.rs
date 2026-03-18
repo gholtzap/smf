@@ -27,6 +27,26 @@ pub enum NfType {
     Bsf,
     Chf,
     Nwdaf,
+    Pcscf,
+    Cbcf,
+    Hss,
+    Ucmf,
+    Scp,
+    Nssaaf,
+    Nsacf,
+    Mfaf,
+    Easdf,
+    Dccf,
+    Tsctsf,
+    Aanf,
+    #[serde(rename = "5G_DDNMF")]
+    FiveGDdnmf,
+    #[serde(rename = "MB_SMF")]
+    MbSmf,
+    #[serde(rename = "MB_UPF")]
+    MbUpf,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +55,9 @@ pub enum NfStatus {
     Registered,
     Suspended,
     Undiscoverable,
+    CanaryRelease,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +66,7 @@ pub struct NFProfile {
     pub nf_instance_id: String,
     pub nf_type: NfType,
     pub nf_status: NfStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plmn_list: Vec<PlmnId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub s_nssai_list: Option<Vec<Snssai>>,
@@ -129,6 +153,8 @@ pub enum NfServiceStatus {
     Registered,
     Suspended,
     Undiscoverable,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,6 +253,9 @@ pub enum NotificationEventType {
     NfRegistered,
     NfDeregistered,
     NfProfileChanged,
+    SharedDataChanged,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,7 +263,36 @@ pub enum NotificationEventType {
 pub struct NotificationData {
     pub event: NotificationEventType,
     pub nf_instance_uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nf_profile: Option<NFProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_changes: Option<Vec<ChangeItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ChangeOp {
+    Add,
+    Move,
+    Remove,
+    Replace,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeItem {
+    pub op: ChangeOp,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orig_value: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

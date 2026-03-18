@@ -16,7 +16,6 @@
 
   Callbacks (public, no auth)
   GET,/health,health_check
-  POST,/nnrf-nfm/v1/nf-status-notify,handlers::nrf_notification::handle_nf_status_notification
   POST,/namf-callback/v1/ue-contexts/:ueId/n1-n2-transfers/:transactionId/notify,handlers::amf_callback::handle_n1n2_transfer_status
   POST,/namf-callback/v1/sm-contexts/:ueId/pdu-sessions/:pduSessionId/n2-notify,handlers::amf_callback::handle_n2_info_notify
 
