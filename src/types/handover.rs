@@ -84,24 +84,6 @@ pub struct HandoverNotifyData {
     pub ue_location: Option<UserLocation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HandoverCancelData {
-    pub pdu_session_id: u8,
-    pub cause: HandoverCancelCause,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum HandoverCancelCause {
-    HoTargetNotAllowed,
-    HoFailureInTarget5gcNgranNode,
-    HoTargetNotReachable,
-    HoFailureInTargetSystem,
-    TngrelocoverallExpiry,
-    TngrelocprepExpiry,
-    HoCancelled,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo, SmContextUpdateCause};
 use crate::types::{AppError, SmContextCreateError, SmContextUpdateError, SendMoDataReqData, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -1949,7 +1949,7 @@ pub async fn update_pdu_session(
                 return handle_ho_completed(state, sm_context_ref, sm_context, payload).await;
             }
             HoState::Cancelled => {
-                return cancel_handover_internal(state, sm_context_ref, sm_context).await;
+                return cancel_handover_internal(state, sm_context_ref, sm_context, payload.cause.clone()).await;
             }
             HoState::None => {}
         }
@@ -3685,82 +3685,61 @@ async fn handle_source_smf_ho_release(
     }))
 }
 
-// NON-STANDARD: This endpoint does not exist in TS 29.502.
-// In 3GPP, handover cancel is handled via POST /sm-contexts/{ref}/modify
-// with hoState=CANCELLED. This dedicated endpoint exists because the modify
-// handler was split for readability. The AMF should call /modify instead.
-pub async fn handle_handover_cancel(
-    State(state): State<AppState>,
-    Path(sm_context_ref): Path<String>,
-    Json(payload): Json<crate::types::HandoverCancelData>,
-) -> Result<Json<PduSessionUpdatedData>, AppError> {
-    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
-
-    let sm_context = collection
-        .find_one(doc! { "_id": &sm_context_ref })
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
-
-    if payload.pdu_session_id != sm_context.pdu_session_id {
-        return Err(AppError::ValidationError(format!(
-            "PDU Session ID mismatch: request={}, context={}",
-            payload.pdu_session_id, sm_context.pdu_session_id
-        )));
-    }
-
-    tracing::info!(
-        "Handover cancel (dedicated) for SUPI: {}, PSI: {}, cause: {:?}",
-        sm_context.supi,
-        sm_context.pdu_session_id,
-        payload.cause
-    );
-
-    cancel_handover_internal(state, sm_context_ref, sm_context).await
-}
-
 async fn cancel_handover_internal(
     state: AppState,
     sm_context_ref: String,
     sm_context: SmContext,
+    cause: Option<SmContextUpdateCause>,
 ) -> Result<Json<PduSessionUpdatedData>, AppError> {
     let collection: Collection<SmContext> = state.db.collection("sm_contexts");
 
     HandoverService::validate_ho_state_for_cancel(&sm_context.handover_state)
         .map_err(AppError::ValidationError)?;
 
-    let source_tunnel = sm_context.source_an_tunnel_info.as_ref()
-        .or(sm_context.an_tunnel_info.as_ref());
+    tracing::info!(
+        "Handover cancel for SUPI: {}, PSI: {}, from state: {:?}, cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context.handover_state,
+        cause
+    );
 
     if matches!(sm_context.handover_state, Some(HoState::Prepared)) {
-        if let (Some(ref pfcp_client), Some(pfcp_session_id), Some(tunnel)) =
-            (&state.pfcp_client, sm_context.pfcp_session_id, source_tunnel)
+        let source_tunnel = sm_context.source_an_tunnel_info.as_ref()
+            .ok_or_else(|| AppError::InternalError(format!(
+                "Source AN tunnel info missing in Prepared state for SUPI: {}, PSI: {}",
+                sm_context.supi, sm_context.pdu_session_id
+            )))?;
+
+        if let (Some(ref pfcp_client), Some(pfcp_session_id)) =
+            (&state.pfcp_client, sm_context.pfcp_session_id)
         {
-            if let Some(ref an_ipv4_str) = tunnel.ipv4_addr {
-                let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
-                    AppError::ValidationError(format!(
-                        "Invalid source AN tunnel IPv4 '{}': {}", an_ipv4_str, e
-                    ))
-                })?;
-                if let Err(e) = PfcpSessionManager::reactivate_downlink(
-                    pfcp_client,
-                    pfcp_session_id,
-                    an_ipv4,
-                    &tunnel.gtp_teid,
-                ).await {
-                    tracing::error!(
-                        "Failed to reactivate DL after handover cancel for SUPI: {}, PSI: {}: {}",
-                        sm_context.supi, sm_context.pdu_session_id, e
-                    );
-                }
+            let an_ipv4_str = source_tunnel.ipv4_addr.as_ref()
+                .ok_or_else(|| AppError::ValidationError(format!(
+                    "Source AN tunnel missing IPv4 for SUPI: {}, PSI: {}",
+                    sm_context.supi, sm_context.pdu_session_id
+                )))?;
+            let an_ipv4 = an_ipv4_str.parse().map_err(|e| {
+                AppError::ValidationError(format!(
+                    "Invalid source AN tunnel IPv4 '{}': {}", an_ipv4_str, e
+                ))
+            })?;
+            if let Err(e) = PfcpSessionManager::reactivate_downlink(
+                pfcp_client,
+                pfcp_session_id,
+                an_ipv4,
+                &source_tunnel.gtp_teid,
+            ).await {
+                tracing::error!(
+                    "Failed to reactivate DL after handover cancel for SUPI: {}, PSI: {}: {}",
+                    sm_context.supi, sm_context.pdu_session_id, e
+                );
             }
         }
     }
 
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Cancelled)
-            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-        "state": mongodb::bson::to_bson(&sm_context.state)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
@@ -3783,6 +3762,8 @@ async fn cancel_handover_internal(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
+    let response_cause = cause.or(Some(SmContextUpdateCause::HoCancel));
+
     Ok(Json(PduSessionUpdatedData {
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
@@ -3798,7 +3779,7 @@ async fn cancel_handover_internal(
         qos_flows_rel_list: None,
         up_cnx_state: None,
         data_forwarding: None,
-        cause: None,
+        cause: response_cause,
     }))
 }
 

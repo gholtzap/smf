@@ -105,7 +105,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/modify", post(handlers::pdu_session::update_pdu_session))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-request-ack", post(handlers::pdu_session::handle_handover_request_ack))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-notify", post(handlers::pdu_session::handle_handover_notify))
-        .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/handover-cancel", post(handlers::pdu_session::handle_handover_cancel))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/release", post(handlers::pdu_session::release_pdu_session))
         .route("/nsmf-pdusession/v1/sm-contexts/:smContextRef/send-mo-data", post(handlers::pdu_session::send_mo_data))
         .route("/nsmf-pdusession/v1/pdu-sessions", post(handlers::pdu_session::create_pdu_session_hsmf))
