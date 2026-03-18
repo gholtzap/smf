@@ -146,3 +146,64 @@ impl From<anyhow::Error> for AppError {
         AppError::InternalError(err.to_string())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmContextUpdateError {
+    pub error: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n1_sm_msg: Option<RefToBinaryData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n2_sm_info: Option<RefToBinaryData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_time: Option<String>,
+}
+
+impl SmContextUpdateError {
+    pub fn from_app_error(err: &AppError) -> Self {
+        Self {
+            error: err.to_problem_details(),
+            n1_sm_msg: None,
+            n2_sm_info: None,
+            recovery_time: None,
+        }
+    }
+
+    pub fn from_app_error_with_reject(err: &AppError, pdu_session_id: u8, pti: u8) -> Self {
+        use base64::{Engine as _, engine::general_purpose};
+        use crate::types::nas::{NasParser, GsmCause};
+
+        let cause = match err {
+            AppError::ValidationError(msg) => {
+                if msg.contains("message type") || msg.contains("NAS") {
+                    GsmCause::MessageTypeNotCompatible
+                } else if msg.contains("state") {
+                    GsmCause::RequestRejectedUnspecified
+                } else {
+                    GsmCause::RequestRejectedUnspecified
+                }
+            }
+            AppError::DatabaseError(_) => GsmCause::InsufficientResources,
+            AppError::InternalError(_) => GsmCause::NetworkFailure,
+            AppError::NotFound(_) => GsmCause::RequestRejectedUnspecified,
+        };
+
+        let reject_msg = NasParser::build_pdu_session_modification_reject(pdu_session_id, pti, cause);
+        let encoded = general_purpose::STANDARD.encode(&reject_msg);
+
+        Self {
+            error: err.to_problem_details(),
+            n1_sm_msg: Some(RefToBinaryData { content_id: encoded }),
+            n2_sm_info: None,
+            recovery_time: None,
+        }
+    }
+
+    pub fn into_response(self, status: StatusCode) -> Response {
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/problem+json")],
+            Json(self),
+        ).into_response()
+    }
+}

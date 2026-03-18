@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
 use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo};
-use crate::types::{AppError, SmContextCreateError, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
+use crate::types::{AppError, SmContextCreateError, SmContextUpdateError, SendMoDataReqData, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::services::pfcp_session::PfcpSessionManager;
 use crate::services::ipam::IpamService;
@@ -3953,10 +3953,129 @@ fn not_implemented_response(operation: &str) -> Response {
 }
 
 pub async fn send_mo_data(
-    State(_state): State<AppState>,
-    Path(_sm_context_ref): Path<String>,
+    State(state): State<AppState>,
+    Path(sm_context_ref): Path<String>,
+    Json(payload): Json<SendMoDataReqData>,
 ) -> Response {
-    not_implemented_response("SendMoData")
+    match send_mo_data_inner(state, sm_context_ref, payload).await {
+        Ok(response) => response,
+        Err(err) => {
+            let status = err.status();
+            SmContextUpdateError::from_app_error(&err).into_response(status)
+        }
+    }
+}
+
+async fn send_mo_data_inner(
+    state: AppState,
+    sm_context_ref: String,
+    payload: SendMoDataReqData,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &sm_context_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
+
+    tracing::info!(
+        "SendMoData for SUPI: {}, PSI: {}, SM Context: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context_ref
+    );
+
+    if let Some(ref ue_location) = payload.ue_location {
+        collection
+            .update_one(
+                doc! { "_id": &sm_context_ref },
+                doc! {
+                    "$set": {
+                        "ue_location": mongodb::bson::to_bson(ue_location)
+                            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }
+                },
+            )
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+
+    if let Some(ref counter) = payload.mo_exp_data_counter {
+        tracing::info!(
+            "MO Exception Data Counter: {} for SUPI: {}",
+            counter.counter,
+            sm_context.supi
+        );
+    }
+
+    let mo_data = general_purpose::STANDARD
+        .decode(&payload.mo_data.content_id)
+        .map_err(|e| AppError::ValidationError(format!("Failed to decode MO data: {}", e)))?;
+
+    if mo_data.is_empty() {
+        return Err(AppError::ValidationError("MO data is empty".to_string()));
+    }
+
+    let header = NasParser::parse_sm_header(&mo_data)
+        .map_err(AppError::ValidationError)?;
+
+    if header.pdu_session_id != sm_context.pdu_session_id {
+        tracing::warn!(
+            "PDU Session ID mismatch: NAS header {} vs SM context {}",
+            header.pdu_session_id,
+            sm_context.pdu_session_id
+        );
+    }
+
+    match header.message_type {
+        NasMessageType::PduSessionModificationRequest => {
+            let result = handle_ue_modification_request(
+                state, sm_context_ref, sm_context, &mo_data,
+            ).await?;
+            Ok(result.into_response())
+        }
+        NasMessageType::PduSessionReleaseRequest => {
+            let result = handle_ue_release_request(
+                state, sm_context_ref, sm_context, &mo_data,
+            ).await?;
+            Ok(result.into_response())
+        }
+        NasMessageType::PduSessionReleaseComplete => {
+            let _ = handle_ue_release_complete(
+                state, sm_context_ref, sm_context,
+            ).await?;
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        NasMessageType::PduSessionModificationComplete => {
+            tracing::info!(
+                "PDU Session Modification Complete via SendMoData for SUPI: {}, PSI: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        NasMessageType::PduSessionModificationCommandReject => {
+            tracing::warn!(
+                "UE rejected PDU Session Modification via SendMoData for SUPI: {}, PSI: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        _ => {
+            tracing::warn!(
+                "Unexpected NAS SM message type {:?} in SendMoData for SUPI: {}",
+                header.message_type,
+                sm_context.supi
+            );
+            Err(AppError::ValidationError(format!(
+                "Unsupported NAS SM message type in SendMoData: {:?}",
+                header.message_type
+            )))
+        }
+    }
 }
 
 pub async fn create_pdu_session_hsmf(

@@ -35,6 +35,7 @@ pub mod certificate_audit;
 pub mod crl;
 pub mod ocsp;
 pub mod ue_context;
+pub mod send_mo_data;
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +66,7 @@ pub use certificate_rotation::*;
 pub use certificate_auto_rotation::*;
 pub use certificate_audit::*;
 pub use crl::*;
+pub use send_mo_data::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
