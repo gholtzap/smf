@@ -1,44 +1,176 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     Json,
 };
+use futures::TryStreamExt;
+use mongodb::bson::doc;
+use mongodb::Collection;
 use crate::db::AppState;
-use crate::types::{AppError, N1N2MessageTransferStatusNotification, N2InfoNotification, N2SmInfoType};
+use crate::models::SmContext;
+use crate::types::{AppError, N1N2MsgTxfrFailureNotification, N1N2MessageTransferCause, N2InfoNotification, N2SmInfoType, SmContextState};
+use crate::services::pfcp_session::PfcpSessionManager;
 
 pub async fn handle_n1n2_transfer_status(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path((ue_id, transaction_id)): Path<(String, String)>,
-    Json(payload): Json<N1N2MessageTransferStatusNotification>,
+    Json(payload): Json<N1N2MsgTxfrFailureNotification>,
 ) -> Result<impl IntoResponse, AppError> {
     tracing::info!(
-        "Received N1N2 message transfer status notification for UE: {}, transaction: {}, status: {:?}",
-        ue_id,
-        transaction_id,
-        payload.status_info.status
+        "N1N2 transfer failure for UE: {}, txn: {}, cause: {:?}, uri: {}",
+        ue_id, transaction_id, payload.cause, payload.n1n2_msg_data_uri
     );
 
-    if let Some(ref cause) = payload.status_info.cause {
-        tracing::debug!(
-            "N1N2 message transfer cause: {:?} for transaction: {}",
-            cause,
-            transaction_id
+    if let Some(retry_after) = payload.retry_after {
+        tracing::info!(
+            "AMF suggests retry after {} seconds for UE: {}, txn: {}",
+            retry_after, ue_id, transaction_id
         );
     }
 
-    if let Some(ref n1_container) = payload.n1_message_container {
-        tracing::debug!(
-            "Received N1 message container in status notification, class: {:?}",
-            n1_container.n1_message_class
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let supi = if ue_id.starts_with("imsi-") || ue_id.starts_with("nai-") {
+        ue_id.clone()
+    } else {
+        format!("imsi-{}", ue_id)
+    };
+
+    let filter = doc! { "supi": &supi };
+    let contexts: Vec<SmContext> = collection
+        .find(filter)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .try_collect()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if contexts.is_empty() {
+        tracing::warn!(
+            "No SM contexts found for UE {} on N1N2 failure notification, txn: {}",
+            supi, transaction_id
         );
+        return Ok(StatusCode::NO_CONTENT);
     }
 
-    if let Some(ref n2_container) = payload.n2_info_container {
-        tracing::debug!(
-            "Received N2 info container in status notification, class: {:?}",
-            n2_container.n2_information_class
-        );
+    match payload.cause {
+        N1N2MessageTransferCause::UeNotResponding
+        | N1N2MessageTransferCause::UeNotReachableForSession
+        | N1N2MessageTransferCause::RejectionDueToPagingRestriction => {
+            tracing::warn!(
+                "UE {} unreachable (cause: {:?}), deactivating user plane for {} session(s)",
+                supi, payload.cause, contexts.len()
+            );
+
+            for ctx in &contexts {
+                if let Some(pfcp_seid) = ctx.pfcp_session_id {
+                    if let Some(ref pfcp_client) = state.pfcp_client {
+                        if let Err(e) = PfcpSessionManager::deactivate_downlink(
+                            pfcp_client, pfcp_seid,
+                        ).await {
+                            tracing::error!(
+                                "Failed to deactivate DL for SUPI: {}, PSI: {}, SEID: {}: {}",
+                                ctx.supi, ctx.pdu_session_id, pfcp_seid, e
+                            );
+                        }
+                    }
+                }
+
+                collection
+                    .update_one(
+                        doc! { "_id": &ctx.id },
+                        doc! { "$set": {
+                            "state": mongodb::bson::to_bson(&SmContextState::Inactive)
+                                .unwrap_or(mongodb::bson::Bson::String("INACTIVE".to_string())),
+                            "updated_at": mongodb::bson::DateTime::now()
+                        }},
+                    )
+                    .await
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            }
+        }
+
+        N1N2MessageTransferCause::AnNotResponding => {
+            tracing::error!(
+                "AN not responding for UE {}, deactivating user plane for {} session(s)",
+                supi, contexts.len()
+            );
+
+            for ctx in &contexts {
+                if let Some(pfcp_seid) = ctx.pfcp_session_id {
+                    if let Some(ref pfcp_client) = state.pfcp_client {
+                        if let Err(e) = PfcpSessionManager::deactivate_downlink(
+                            pfcp_client, pfcp_seid,
+                        ).await {
+                            tracing::error!(
+                                "Failed to deactivate DL for SUPI: {}, PSI: {}: {}",
+                                ctx.supi, ctx.pdu_session_id, e
+                            );
+                        }
+                    }
+                }
+
+                collection
+                    .update_one(
+                        doc! { "_id": &ctx.id },
+                        doc! { "$set": {
+                            "state": mongodb::bson::to_bson(&SmContextState::Inactive)
+                                .unwrap_or(mongodb::bson::Bson::String("INACTIVE".to_string())),
+                            "updated_at": mongodb::bson::DateTime::now()
+                        }},
+                    )
+                    .await
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            }
+        }
+
+        N1N2MessageTransferCause::N1MsgNotTransferred
+        | N1N2MessageTransferCause::N2MsgNotTransferred => {
+            tracing::error!(
+                "N1/N2 message not transferred for UE {} (cause: {:?}), txn: {}",
+                supi, payload.cause, transaction_id
+            );
+
+            for ctx in &contexts {
+                if ctx.state == SmContextState::ActivePending {
+                    tracing::warn!(
+                        "Session setup failed for SUPI: {}, PSI: {} - N1/N2 not delivered",
+                        ctx.supi, ctx.pdu_session_id
+                    );
+                }
+            }
+        }
+
+        N1N2MessageTransferCause::TemporaryRejectRegistrationOngoing
+        | N1N2MessageTransferCause::TemporaryRejectHandoverOngoing => {
+            tracing::info!(
+                "Temporary reject for UE {} (cause: {:?}), retry_after: {:?}",
+                supi, payload.cause, payload.retry_after
+            );
+        }
+
+        N1N2MessageTransferCause::AttemptingToReachUe
+        | N1N2MessageTransferCause::WaitingForAsynchronousTransfer => {
+            tracing::debug!(
+                "AMF still processing for UE {} (cause: {:?}), txn: {}",
+                supi, payload.cause, transaction_id
+            );
+        }
+
+        N1N2MessageTransferCause::N1N2TransferInitiated => {
+            tracing::debug!(
+                "N1N2 transfer initiated for UE {}, txn: {}",
+                supi, transaction_id
+            );
+        }
+
+        N1N2MessageTransferCause::FailureCauseUnspecified => {
+            tracing::error!(
+                "Unspecified N1N2 transfer failure for UE {}, txn: {}",
+                supi, transaction_id
+            );
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

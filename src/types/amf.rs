@@ -68,6 +68,7 @@ pub struct N1N2MessageTransferRequest {
     pub n1_message_container: Option<N1MessageContainer>,
     pub n2_info_container: Option<N2InfoContainer>,
     pub pdu_session_id: Option<u8>,
+    pub n1n2_failure_txf_notif_uri: Option<String>,
     pub lcs_correlation_id: Option<String>,
     pub ppi: Option<u8>,
     pub supported_features: Option<String>,
@@ -80,15 +81,21 @@ pub struct N1N2MessageTransferResponse {
     pub supported_features: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum N1N2MessageTransferCause {
-    N1N2TransferInitiated,
     AttemptingToReachUe,
-    N1MsgNotTransferred,
-    UeNotReachable,
+    N1N2TransferInitiated,
+    WaitingForAsynchronousTransfer,
     UeNotResponding,
-    N1N2TransferError,
+    N1MsgNotTransferred,
+    N2MsgNotTransferred,
+    UeNotReachableForSession,
+    TemporaryRejectRegistrationOngoing,
+    TemporaryRejectHandoverOngoing,
+    RejectionDueToPagingRestriction,
+    AnNotResponding,
+    FailureCauseUnspecified,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,25 +246,10 @@ pub struct MultipartPart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct N1N2MessageTransferStatusNotification {
-    pub status_info: N1N2MessageTransferStatusInfo,
-    pub n1_message_container: Option<N1MessageContainer>,
-    pub n2_info_container: Option<N2InfoContainer>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct N1N2MessageTransferStatusInfo {
-    pub status: N1N2MessageTransferStatus,
-    pub cause: Option<N1N2MessageTransferCause>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum N1N2MessageTransferStatus {
-    Success,
-    Failure,
-    PartialSuccess,
+pub struct N1N2MsgTxfrFailureNotification {
+    pub cause: N1N2MessageTransferCause,
+    pub n1n2_msg_data_uri: String,
+    pub retry_after: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

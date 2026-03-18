@@ -144,7 +144,7 @@ pub struct PduAddress {
     pub dns_secondary: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SmContextState {
     Idle,
