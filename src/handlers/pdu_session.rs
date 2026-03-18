@@ -1096,6 +1096,10 @@ async fn handle_inter_smf_handover_create(
         small_data_rate_status: None,
         dnai: None,
         notification_info_list: None,
+        vsmf_id: None,
+        vsmf_pdu_session_uri: payload.vsmf_pdu_session_uri.clone(),
+        vcn_tunnel_info: payload.vcn_tunnel_info.clone(),
+        icn_tunnel_info: payload.icn_tunnel_info.clone(),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
@@ -4107,11 +4111,678 @@ pub async fn create_pdu_session_hsmf(
 }
 
 pub async fn modify_pdu_session_hsmf(
-    State(_state): State<AppState>,
-    Path(_pdu_session_ref): Path<String>,
-    Json(_payload): Json<serde_json::Value>,
-) -> Response {
-    not_implemented_response("UpdatePduSession (H-SMF modify)")
+    State(state): State<AppState>,
+    Path(pdu_session_ref): Path<String>,
+    Json(payload): Json<crate::types::hsmf::HsmfUpdateData>,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &pdu_session_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("PDU Session {} not found", pdu_session_ref)))?;
+
+    tracing::info!(
+        "H-SMF UpdatePduSession - SUPI: {}, PSI: {}, Ref: {}, indication: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        pdu_session_ref,
+        payload.request_indication
+    );
+
+    hsmf_persist_context_updates(&collection, &pdu_session_ref, &payload).await?;
+
+    use crate::types::hsmf::RequestIndication;
+    match payload.request_indication {
+        RequestIndication::UeReqPduSesMod => {
+            hsmf_handle_ue_modification(state, pdu_session_ref, sm_context, payload).await
+        }
+        RequestIndication::UeReqPduSesRel => {
+            hsmf_handle_ue_release(state, pdu_session_ref, sm_context, payload).await
+        }
+        RequestIndication::PduSesMob => {
+            hsmf_handle_pdu_session_mobility(state, pdu_session_ref, sm_context, payload).await
+        }
+        RequestIndication::NwReqPduSesMod => {
+            hsmf_handle_nw_modification(state, pdu_session_ref, sm_context, payload).await
+        }
+        RequestIndication::NwReqPduSesRel | RequestIndication::RelDueTo5gAnRequest => {
+            hsmf_handle_nw_release(state, pdu_session_ref, sm_context, payload).await
+        }
+        RequestIndication::NwReqPduSesAuth => {
+            hsmf_handle_nw_reauth(state, pdu_session_ref, sm_context).await
+        }
+        RequestIndication::EbiAssignmentReq => {
+            hsmf_handle_ebi_assignment(state, pdu_session_ref, sm_context, payload).await
+        }
+    }
+}
+
+async fn hsmf_persist_context_updates(
+    collection: &Collection<SmContext>,
+    pdu_session_ref: &str,
+    payload: &crate::types::hsmf::HsmfUpdateData,
+) -> Result<(), AppError> {
+    let mut update_doc = doc! {};
+    let mut has_updates = false;
+
+    if let Some(ref loc) = payload.ue_location {
+        update_doc.insert(
+            "ue_location",
+            mongodb::bson::to_bson(loc)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        has_updates = true;
+    }
+    if let Some(ref pei) = payload.pei {
+        update_doc.insert("pei", pei.as_str());
+        has_updates = true;
+    }
+    if let Some(ref serving_network) = payload.serving_network {
+        update_doc.insert(
+            "serving_network",
+            mongodb::bson::to_bson(serving_network)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        has_updates = true;
+    }
+    if let Some(ref an_type) = payload.an_type {
+        update_doc.insert(
+            "an_type",
+            mongodb::bson::to_bson(an_type)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        has_updates = true;
+    }
+    if let Some(ref rat_type) = payload.rat_type {
+        update_doc.insert(
+            "rat_type",
+            mongodb::bson::to_bson(rat_type)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        has_updates = true;
+    }
+
+    if has_updates {
+        update_doc.insert("updated_at", mongodb::bson::DateTime::now());
+        collection
+            .update_one(doc! { "_id": pdu_session_ref }, doc! { "$set": update_doc })
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+    Ok(())
+}
+
+async fn hsmf_handle_ue_modification(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    if sm_context.state != SmContextState::Active {
+        return Err(AppError::ValidationError(
+            format!("PDU Session {} is not active (state: {:?})", pdu_session_ref, sm_context.state),
+        ));
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &pdu_session_ref },
+            doc! { "$set": {
+                "state": mongodb::bson::to_bson(&SmContextState::ModificationPending)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                "updated_at": mongodb::bson::DateTime::now()
+            }},
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if let Some(ref qos_rel_list) = payload.qos_flows_rel_notify_list {
+        let remove_qfis: Vec<u8> = qos_rel_list.iter().map(|q| q.qfi).collect();
+        if !remove_qfis.is_empty() {
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+                if let Err(e) = PfcpSessionManager::modify_session(
+                    pfcp_client, seid, None, None, Some(&remove_qfis), None,
+                ).await {
+                    tracing::warn!(
+                        "H-SMF PFCP modify failed for QoS release - SUPI: {}: {}",
+                        sm_context.supi, e
+                    );
+                }
+            }
+
+            let remaining_qos: Vec<_> = sm_context.qos_flows.iter()
+                .filter(|f| !remove_qfis.contains(&f.qfi))
+                .cloned()
+                .collect();
+            collection
+                .update_one(
+                    doc! { "_id": &pdu_session_ref },
+                    doc! { "$set": {
+                        "qos_flows": mongodb::bson::to_bson(&remaining_qos)
+                            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }},
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        }
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &pdu_session_ref },
+            doc! { "$set": {
+                "state": mongodb::bson::to_bson(&SmContextState::Active)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                "updated_at": mongodb::bson::DateTime::now()
+            }},
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UpPathCh,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref),
+        None,
+    ).await;
+
+    let qos_setup: Vec<crate::types::hsmf::QosFlowSetupItem> = sm_context.qos_flows.iter()
+        .map(|f| crate::types::hsmf::QosFlowSetupItem {
+            qfi: f.qfi,
+            qos_rules: None,
+            ebi: None,
+        })
+        .collect();
+
+    let response = crate::types::hsmf::HsmfUpdatedData {
+        session_ambr: sm_context.session_ambr.clone(),
+        qos_flows_setup_list: if qos_setup.is_empty() { None } else { Some(qos_setup) },
+        ..Default::default()
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn hsmf_handle_ue_release(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    tracing::info!(
+        "H-SMF UE-requested release - SUPI: {}, PSI: {}, cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.cause
+    );
+
+    hsmf_execute_release(state, pdu_session_ref, sm_context, payload.cause).await
+}
+
+async fn hsmf_handle_pdu_session_mobility(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let mut update_doc = doc! {};
+    let mut tunnel_updated = false;
+
+    if let Some(ref vcn) = payload.vcn_tunnel_info {
+        update_doc.insert(
+            "vcn_tunnel_info",
+            mongodb::bson::to_bson(vcn)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        tunnel_updated = true;
+    }
+    if let Some(ref icn) = payload.icn_tunnel_info {
+        update_doc.insert(
+            "icn_tunnel_info",
+            mongodb::bson::to_bson(icn)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+        tunnel_updated = true;
+    }
+    if let Some(ref additional) = payload.additional_cn_tunnel_info {
+        update_doc.insert(
+            "additional_cn_tunnel_info",
+            mongodb::bson::to_bson(additional)
+                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+        );
+    }
+
+    if tunnel_updated {
+        update_doc.insert("updated_at", mongodb::bson::DateTime::now());
+        collection
+            .update_one(doc! { "_id": &pdu_session_ref }, doc! { "$set": &update_doc })
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+
+    let tunnel_for_pfcp = payload.vcn_tunnel_info.as_ref()
+        .or(payload.icn_tunnel_info.as_ref());
+
+    if let Some(tunnel) = tunnel_for_pfcp {
+        if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+            if let Some(ref ipv4) = tunnel.ipv4_addr {
+                match ipv4.parse::<std::net::Ipv4Addr>() {
+                    Ok(addr) => {
+                        match PfcpSessionManager::modify_session_for_handover(
+                            pfcp_client,
+                            seid,
+                            addr,
+                            &tunnel.gtp_teid,
+                            sm_context.up_security_context.as_ref(),
+                            true,
+                        ).await {
+                            Ok(_) => {
+                                tracing::info!(
+                                    "H-SMF PFCP updated for mobility - SUPI: {}, new tunnel: {}:{}",
+                                    sm_context.supi,
+                                    ipv4,
+                                    tunnel.gtp_teid
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "H-SMF PFCP mobility update failed - SUPI: {}: {}",
+                                    sm_context.supi, e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "H-SMF invalid tunnel IPv4 for mobility - SUPI: {}: {}",
+                            sm_context.supi, e
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UpPathCh,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref),
+        None,
+    ).await;
+
+    let response = crate::types::hsmf::HsmfUpdatedData {
+        session_ambr: sm_context.session_ambr.clone(),
+        ..Default::default()
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn hsmf_handle_nw_modification(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    if sm_context.state != SmContextState::Active {
+        return Err(AppError::ValidationError(
+            format!("PDU Session {} is not active (state: {:?})", pdu_session_ref, sm_context.state),
+        ));
+    }
+
+    if let Some(ref vcn) = payload.vcn_tunnel_info {
+        collection
+            .update_one(
+                doc! { "_id": &pdu_session_ref },
+                doc! { "$set": {
+                    "vcn_tunnel_info": mongodb::bson::to_bson(vcn)
+                        .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                    "updated_at": mongodb::bson::DateTime::now()
+                }},
+            )
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+
+    if let Some(ref qos_rel_list) = payload.qos_flows_rel_notify_list {
+        let remove_qfis: Vec<u8> = qos_rel_list.iter().map(|q| q.qfi).collect();
+        if !remove_qfis.is_empty() {
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+                let _ = PfcpSessionManager::modify_session(
+                    pfcp_client, seid, None, None, Some(&remove_qfis), None,
+                ).await;
+            }
+
+            let remaining_qos: Vec<_> = sm_context.qos_flows.iter()
+                .filter(|f| !remove_qfis.contains(&f.qfi))
+                .cloned()
+                .collect();
+            collection
+                .update_one(
+                    doc! { "_id": &pdu_session_ref },
+                    doc! { "$set": {
+                        "qos_flows": mongodb::bson::to_bson(&remaining_qos)
+                            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }},
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        }
+    }
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UpPathCh,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref),
+        None,
+    ).await;
+
+    let response = crate::types::hsmf::HsmfUpdatedData {
+        session_ambr: sm_context.session_ambr.clone(),
+        ..Default::default()
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn hsmf_handle_nw_release(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    tracing::info!(
+        "H-SMF NW-requested release - SUPI: {}, PSI: {}, cause: {:?}, indication: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.cause,
+        payload.request_indication
+    );
+
+    if let Some(ref report_list) = payload.secondary_rat_usage_report {
+        for report in report_list {
+            tracing::info!(
+                "H-SMF secondary RAT usage - SUPI: {}, type: {}, flows: {}",
+                sm_context.supi,
+                report.secondary_rat_type,
+                report.qos_flows_usage_data.as_ref().map_or(0, |d| d.len())
+            );
+        }
+    }
+
+    hsmf_execute_release(state, pdu_session_ref, sm_context, payload.cause).await
+}
+
+async fn hsmf_handle_nw_reauth(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+) -> Result<Response, AppError> {
+    tracing::info!(
+        "H-SMF NW-requested re-auth - SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let Some(ref udm_client) = state.udm_client {
+        let udm_uri = std::env::var("UDM_URI").unwrap_or_default();
+        match udm_client.get_sm_data(&udm_uri, &sm_context.supi, Some(&sm_context.s_nssai), Some(&sm_context.dnn), sm_context.serving_network.as_ref()).await {
+            Ok(sm_data) => {
+                tracing::info!(
+                    "H-SMF re-auth subscription check OK - SUPI: {}, dnn: {}",
+                    sm_context.supi,
+                    sm_data.single_nssai.sst
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "H-SMF re-auth subscription check failed - SUPI: {}: {}",
+                    sm_context.supi, e
+                );
+                return Err(AppError::InternalError(
+                    format!("Subscription verification failed for re-auth: {}", e),
+                ));
+            }
+        }
+    }
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UpPathCh,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref),
+        None,
+    ).await;
+
+    let response = crate::types::hsmf::HsmfUpdatedData {
+        session_ambr: sm_context.session_ambr.clone(),
+        ..Default::default()
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn hsmf_handle_ebi_assignment(
+    _state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    payload: crate::types::hsmf::HsmfUpdateData,
+) -> Result<Response, AppError> {
+    tracing::info!(
+        "H-SMF EBI assignment - SUPI: {}, PSI: {}, assign_count: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        payload.assign_ebi_list.as_ref().map_or(0, |l| l.len())
+    );
+
+    let mut assigned_ebis = Vec::new();
+    let mut next_ebi: u8 = 5;
+
+    if let Some(ref existing) = payload.eps_bearer_info {
+        for info in existing {
+            if info.ebi >= next_ebi {
+                next_ebi = info.ebi + 1;
+            }
+        }
+    }
+
+    if let Some(ref assign_list) = payload.assign_ebi_list {
+        for _item in assign_list {
+            if next_ebi > 15 {
+                tracing::warn!(
+                    "H-SMF EBI pool exhausted - SUPI: {}, ref: {}",
+                    sm_context.supi,
+                    pdu_session_ref
+                );
+                return Err(AppError::InternalError(
+                    "EPS Bearer ID pool exhausted".to_string(),
+                ));
+            }
+            assigned_ebis.push(crate::models::EpsBearerInfo {
+                ebi: next_ebi,
+                pgw_s8u_fteid: None,
+            });
+            next_ebi += 1;
+        }
+    }
+
+    let response = crate::types::hsmf::HsmfUpdatedData {
+        eps_bearer_info: if assigned_ebis.is_empty() { None } else { Some(assigned_ebis) },
+        session_ambr: sm_context.session_ambr.clone(),
+        ..Default::default()
+    };
+
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn hsmf_execute_release(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    cause: Option<String>,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    collection
+        .update_one(
+            doc! { "_id": &pdu_session_ref },
+            doc! { "$set": {
+                "state": mongodb::bson::to_bson(&SmContextState::InactivePending)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                "updated_at": mongodb::bson::DateTime::now()
+            }},
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        match PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            Ok(_) => {
+                tracing::info!(
+                    "H-SMF PFCP session deleted (via modify release) - SUPI: {}, SEID: {}",
+                    sm_context.supi, seid
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "H-SMF PFCP delete failed (via modify release) - SUPI: {}: {}, proceeding",
+                    sm_context.supi, e
+                );
+            }
+        }
+    }
+
+    if let (Some(ref pcf_client), Some(ref policy_id)) = (&state.pcf_client, &sm_context.pcf_policy_id) {
+        let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
+        if let Err(e) = pcf_client.delete_sm_policy(&pcf_uri, policy_id).await {
+            tracing::warn!(
+                "H-SMF SM policy delete failed (via modify release) - SUPI: {}: {}, proceeding",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    if let (Some(ref chf_client), Some(ref charging_ref)) = (&state.chf_client, &sm_context.chf_charging_ref) {
+        let chf_uri = std::env::var("CHF_URI").unwrap_or_default();
+        let nf_identification = crate::types::chf::NfIdentification {
+            nf_name: format!("SMF-{}", std::env::var("NF_INSTANCE_ID").unwrap_or_else(|_| "unknown".to_string())),
+            nf_ip_v4_address: Some(std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())),
+            nf_ip_v6_address: None,
+            nf_plmn_id: None,
+            nf_fqdn: None,
+        };
+        let charging_request = crate::types::chf::ChargingDataRequest {
+            subscriber_identifier: sm_context.supi.clone(),
+            nf_consumer_identification: nf_identification,
+            invocation_time_stamp: chrono::Utc::now().to_rfc3339(),
+            invocation_sequence_number: 1,
+            one_time_event: Some(false),
+            one_time_event_type: None,
+            notify_uri: None,
+            multipleunit_usage: None,
+            triggers: Some(vec![crate::types::chf::Trigger::StopOfServiceDataFlow]),
+            pdu_session_charging_information: None,
+            roaming_qbc_information: None,
+            tenant_identifier: None,
+        };
+        if let Err(e) = chf_client.release_charging_session(&chf_uri, charging_ref, charging_request).await {
+            tracing::warn!(
+                "H-SMF charging release failed (via modify release) - SUPI: {}: {}, proceeding",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::PduSesRel,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref.clone()),
+        Some(crate::types::PduSessionStatus::Released),
+    ).await;
+
+    IpamService::release_ip(&state.db, &pdu_session_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("H-SMF IP release failed (via modify release) - Ref {}: {}", pdu_session_ref, e);
+        })
+        .ok();
+
+    collection
+        .delete_one(doc! { "_id": &pdu_session_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if let Some(ref status_uri) = sm_context.sm_context_status_uri {
+        let client = reqwest::Client::new();
+        let notification = SmContextStatusNotification {
+            status_info: SmContextStatusInfo {
+                resource_status: ResourceStatus::Released,
+                cause: cause.clone(),
+            },
+        };
+        let uri = status_uri.clone();
+        tokio::spawn(async move {
+            match client.post(&uri).json(&notification).send().await {
+                Ok(resp) => {
+                    tracing::info!(
+                        "H-SMF status notification sent (via modify release), status: {}",
+                        resp.status()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("H-SMF failed to send status notification (via modify release): {}", e);
+                }
+            }
+        });
+    }
+
+    tracing::info!(
+        "H-SMF released PDU Session (via modify) - SUPI: {}, PSI: {}, cause: {:?}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        cause
+    );
+
+    Ok(StatusCode::OK.into_response())
 }
 
 pub async fn release_pdu_session_hsmf(

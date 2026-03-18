@@ -306,6 +306,14 @@ pub struct SmContext {
     pub dnai: Option<String>,
     #[serde(default)]
     pub notification_info_list: Option<Vec<NotificationInfo>>,
+    #[serde(default)]
+    pub vsmf_id: Option<String>,
+    #[serde(default)]
+    pub vsmf_pdu_session_uri: Option<String>,
+    #[serde(default)]
+    pub vcn_tunnel_info: Option<TunnelInfo>,
+    #[serde(default)]
+    pub icn_tunnel_info: Option<TunnelInfo>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -357,6 +365,10 @@ impl SmContext {
             small_data_rate_status: None,
             dnai: None,
             notification_info_list: None,
+            vsmf_id: None,
+            vsmf_pdu_session_uri: create_data.vsmf_pdu_session_uri.clone(),
+            vcn_tunnel_info: create_data.vcn_tunnel_info.clone(),
+            icn_tunnel_info: create_data.icn_tunnel_info.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
