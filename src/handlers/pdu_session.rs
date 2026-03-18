@@ -844,6 +844,7 @@ async fn create_pdu_session_inner(
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: sm_context.session_ambr.clone(),
+        hcn_tunnel_info: None,
         cn_tunnel_info: None,
         additional_cn_tunnel_info: None,
         dnai_list: None,
@@ -1227,6 +1228,7 @@ async fn handle_inter_smf_handover_create(
         eps_pdn_cnx_info: None,
         supported_features: None,
         session_ambr: sm_context.session_ambr.clone(),
+        hcn_tunnel_info: None,
         cn_tunnel_info,
         additional_cn_tunnel_info: None,
         dnai_list: None,
@@ -4104,10 +4106,528 @@ async fn send_mo_data_inner(
 }
 
 pub async fn create_pdu_session_hsmf(
-    State(_state): State<AppState>,
-    Json(_payload): Json<serde_json::Value>,
-) -> Response {
-    not_implemented_response("PostPduSessions (H-SMF create)")
+    State(state): State<AppState>,
+    Json(payload): Json<PduSessionCreateData>,
+) -> Result<Response, Response> {
+    let pdu_session_id = payload.pdu_session_id;
+    create_pdu_session_hsmf_inner(state, payload).await.map_err(|err| {
+        let status = err.status();
+        SmContextCreateError::from_app_error_with_reject(&err, pdu_session_id).into_response(status)
+    })
+}
+
+async fn create_pdu_session_hsmf_inner(
+    state: AppState,
+    payload: PduSessionCreateData,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    if payload.vsmf_id.is_none() && payload.ismf_id.is_none() {
+        return Err(AppError::ValidationError(
+            "vsmfId or ismfId is required for H-SMF create".to_string(),
+        ));
+    }
+    if payload.serving_network.is_none() {
+        return Err(AppError::ValidationError(
+            "servingNetwork is required".to_string(),
+        ));
+    }
+
+    let use_snssai = payload.hplmn_snssai.as_ref().unwrap_or(&payload.s_nssai);
+
+    let slice_config = state
+        .slice_selector
+        .validate_snssai(use_snssai)
+        .map_err(AppError::ValidationError)?;
+
+    let dnn_config = state
+        .dnn_selector
+        .validate_dnn(&payload.dnn)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "H-SMF CreatePduSession - SUPI: {}, PSI: {}, DNN: {}, Slice: {} (SST: {}, SD: {:?}), V-SMF: {:?}",
+        payload.supi,
+        payload.pdu_session_id,
+        payload.dnn,
+        slice_config.slice_name,
+        use_snssai.sst,
+        use_snssai.sd,
+        payload.vsmf_id
+    );
+
+    let (subscriber_5qi, subscriber_ambr, subscriber_ssc_modes, subscriber_pdu_types) = if let Some(ref udm_client) = state.udm_client {
+        let udm_uri = std::env::var("UDM_URI").unwrap_or_default();
+
+        match udm_client.get_sm_data(
+            &udm_uri,
+            &payload.supi,
+            Some(use_snssai),
+            Some(&payload.dnn),
+            None,
+        ).await {
+            Ok(sm_data) => {
+                tracing::info!(
+                    "H-SMF: Retrieved SM subscription data from UDM for SUPI: {}",
+                    payload.supi
+                );
+
+                if let Some(ref dnn_configs) = sm_data.dnn_configurations {
+                    if let Some(dnn_cfg) = dnn_configs.get(&payload.dnn as &str) {
+                        let sub_5qi = dnn_cfg.qos_profile_5g.as_ref().map(|qos| qos.qos_identifier_5);
+                        let sub_ambr = dnn_cfg.session_ambr.clone();
+                        let sub_ssc_modes = dnn_cfg.ssc_modes.allowed_ssc_modes.as_ref().map(|modes| {
+                            modes.iter().map(|m| SscMode::from(m.clone())).collect::<Vec<SscMode>>()
+                        });
+                        let sub_pdu_types = Some(dnn_cfg.pdu_session_types.clone());
+                        (sub_5qi, sub_ambr, sub_ssc_modes, sub_pdu_types)
+                    } else {
+                        (None, None, None, None)
+                    }
+                } else {
+                    (None, None, None, None)
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "H-SMF: Failed to retrieve SM data from UDM for SUPI: {}: {}, continuing with defaults",
+                    payload.supi, e
+                );
+                (None, None, None, None)
+            }
+        }
+    } else {
+        (None, None, None, None)
+    };
+
+    let existing = collection
+        .find_one(doc! { "supi": &payload.supi, "pdu_session_id": payload.pdu_session_id as i32 })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let is_existing_request = matches!(
+        payload.request_type,
+        Some(RequestType::ExistingPduSession) | Some(RequestType::ExistingEmergencyPduSession)
+    );
+
+    if let Some(ref existing_ctx) = existing {
+        if is_existing_request {
+            tracing::info!(
+                "H-SMF: ExistingPduSession for SUPI: {}, PSI: {} - releasing old session",
+                payload.supi,
+                payload.pdu_session_id
+            );
+
+            if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, existing_ctx.pfcp_session_id) {
+                if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+                    tracing::warn!("H-SMF: Failed to delete old PFCP session {}: {}", seid, e);
+                }
+            }
+
+            IpamService::release_ip(&state.db, &existing_ctx.id).await.ok();
+
+            collection
+                .delete_one(doc! { "_id": &existing_ctx.id })
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        } else {
+            return Err(AppError::ValidationError(format!(
+                "PDU Session already exists for SUPI {} with PDU Session ID {}",
+                payload.supi, payload.pdu_session_id
+            )));
+        }
+    }
+
+    let mut sm_context = SmContext::new(&payload);
+
+    if let Some(ref sub_pdu_types) = subscriber_pdu_types {
+        let requested = &sm_context.pdu_session_type;
+        let allowed = sub_pdu_types.allowed_session_types.as_ref();
+
+        let is_allowed = match allowed {
+            Some(types) => types.iter().any(|t| match (t, requested) {
+                (crate::types::udm::PduSessionType::Ipv4, PduSessionType::Ipv4) => true,
+                (crate::types::udm::PduSessionType::Ipv6, PduSessionType::Ipv6) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv4v6) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv4) => true,
+                (crate::types::udm::PduSessionType::Ipv4v6, PduSessionType::Ipv6) => true,
+                (crate::types::udm::PduSessionType::Unstructured, PduSessionType::Unstructured) => true,
+                (crate::types::udm::PduSessionType::Ethernet, PduSessionType::Ethernet) => true,
+                _ => false,
+            }),
+            None => true,
+        };
+
+        if !is_allowed {
+            let default_type = match sub_pdu_types.default_session_type {
+                crate::types::udm::PduSessionType::Ipv4 => PduSessionType::Ipv4,
+                crate::types::udm::PduSessionType::Ipv6 => PduSessionType::Ipv6,
+                crate::types::udm::PduSessionType::Ipv4v6 => PduSessionType::Ipv4v6,
+                crate::types::udm::PduSessionType::Unstructured => PduSessionType::Unstructured,
+                crate::types::udm::PduSessionType::Ethernet => PduSessionType::Ethernet,
+            };
+            tracing::info!(
+                "H-SMF: PDU type {:?} not allowed for SUPI: {}, falling back to {:?}",
+                requested, payload.supi, default_type
+            );
+            sm_context.pdu_session_type = default_type;
+        }
+    }
+
+    let selected_ssc_mode = state.ssc_selector.select_ssc_mode(
+        payload.ssc_mode.as_deref(),
+        subscriber_ssc_modes.as_deref(),
+        None,
+    ).map_err(AppError::ValidationError)?;
+
+    sm_context.ssc_mode = selected_ssc_mode;
+
+    let default_5qi = subscriber_5qi
+        .or(dnn_config.default_5qi)
+        .or(slice_config.default_5qi)
+        .unwrap_or(9);
+
+    let qos_flow = state
+        .slice_qos_policy_service
+        .create_qos_flow_with_5qi(use_snssai, 1, default_5qi);
+
+    sm_context.qos_flows = vec![qos_flow.clone()];
+
+    let ip_pool_name = &dnn_config.ip_pool_name;
+    let ip_allocation = IpamService::allocate_ip(
+        &state.db,
+        ip_pool_name,
+        &sm_context.id,
+        &payload.supi,
+        &sm_context.pdu_session_type,
+    )
+    .await
+    .map_err(|e| AppError::ValidationError(format!("IP allocation failed: {}", e)))?;
+
+    let (ipv4_addr, ipv6_addr) = match sm_context.pdu_session_type {
+        PduSessionType::Ipv4 => (Some(ip_allocation.ip_address.clone()), None),
+        PduSessionType::Ipv6 => (None, ip_allocation.ipv6_prefix.clone()),
+        PduSessionType::Ipv4v6 => (Some(ip_allocation.ip_address.clone()), ip_allocation.ipv6_prefix.clone()),
+        _ => (None, None),
+    };
+
+    sm_context.pdu_address = Some(PduAddress {
+        pdu_session_type: sm_context.pdu_session_type.clone(),
+        ipv4_addr: ipv4_addr.clone(),
+        ipv6_addr: ipv6_addr.clone(),
+        dns_primary: ip_allocation.dns_primary.clone(),
+        dns_secondary: ip_allocation.dns_secondary.clone(),
+    });
+
+    sm_context.mtu = ip_allocation.mtu.or(dnn_config.mtu);
+
+    sm_context.session_ambr = Some(if let Some(ref sub_ambr) = subscriber_ambr {
+        Ambr {
+            uplink: sub_ambr.uplink.clone(),
+            downlink: sub_ambr.downlink.clone(),
+        }
+    } else {
+        Ambr {
+            uplink: dnn_config.default_session_ambr_uplink.clone(),
+            downlink: dnn_config.default_session_ambr_downlink.clone(),
+        }
+    });
+
+    if let Some(ref pcf_client) = state.pcf_client {
+        let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
+
+        let notification_uri = format!(
+            "http://{}:{}/npcf-callback/v1/sm-policy-notify/{}",
+            std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
+            std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()),
+            sm_context.id
+        );
+
+        let context_data = crate::types::pcf::SmPolicyContextData {
+            supi: payload.supi.clone(),
+            pdu_session_id: payload.pdu_session_id,
+            dnn: payload.dnn.clone(),
+            slice_info: use_snssai.clone(),
+            notification_uri,
+            ipv4_address: ipv4_addr.clone(),
+            ipv6_address_prefix: ipv6_addr.clone(),
+            ip_domain: None,
+            subs_sess_ambr: None,
+            auth_prof_index: None,
+            subs_def_qos: None,
+            num_of_pack_filter: None,
+            online: Some(true),
+            offline: Some(false),
+            access_type: Some(crate::types::pcf::AccessType::Gpe3gppAccess),
+            rat_type: Some(crate::types::pcf::RatType::Nr),
+            servingNetwork: None,
+            user_location_info: None,
+            ue_time_zone: None,
+            pei: None,
+            ipv4_frame_route_list: None,
+            ipv6_frame_route_list: None,
+            supp_feat: None,
+        };
+
+        match pcf_client.create_sm_policy(&pcf_uri, context_data).await {
+            Ok((policy_id, _policy_decision)) => {
+                sm_context.pcf_policy_id = Some(policy_id.clone());
+                tracing::info!("H-SMF: SM policy created for SUPI: {}, Policy ID: {}", payload.supi, policy_id);
+            }
+            Err(e) => {
+                tracing::warn!("H-SMF: Failed to create SM policy for SUPI: {}: {}", payload.supi, e);
+            }
+        }
+    }
+
+    let selected_upf_result = state.upf_selection_service.select_upf(&crate::types::UpfSelectionCriteria {
+        ue_location: sm_context.ue_location.clone(),
+        s_nssai: sm_context.s_nssai.clone(),
+        dnn: sm_context.dnn.clone(),
+        current_upf_address: None,
+    }).await;
+
+    match selected_upf_result {
+        Ok(selection_result) => {
+            sm_context.upf_address = Some(selection_result.selected_upf.address.clone());
+            tracing::info!(
+                "H-SMF: Selected UPF {} for SUPI: {}, PSI: {}",
+                selection_result.selected_upf.address, payload.supi, payload.pdu_session_id
+            );
+        }
+        Err(e) => {
+            tracing::warn!("H-SMF: UPF selection failed for SUPI: {}: {}, using default", payload.supi, e);
+            if let Some(ref pfcp_client) = state.pfcp_client {
+                sm_context.upf_address = Some(pfcp_client.upf_address().to_string());
+            }
+        }
+    }
+
+    let mut upf_teid: Option<u32> = None;
+    let mut upf_addr: Option<std::net::Ipv4Addr> = None;
+
+    let ue_ipv4 = if !ip_allocation.ip_address.is_empty() {
+        Some(ip_allocation.ip_address.parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid UE IPv4 address: {}", e))
+        })?)
+    } else {
+        None
+    };
+
+    if let Some(ref pfcp_client) = state.pfcp_client {
+        let seid = PfcpSessionManager::generate_seid(&sm_context.id, payload.pdu_session_id);
+
+        let upf_ipv4: std::net::Ipv4Addr = pfcp_client.upf_address().ip().to_string().parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
+        })?;
+
+        let ue_ipv6: Option<std::net::Ipv6Addr> = ipv6_addr.as_ref().and_then(|prefix| {
+            prefix.split('/').next().and_then(|s| s.parse().ok())
+        });
+
+        match PfcpSessionManager::establish_session(
+            pfcp_client,
+            seid,
+            ue_ipv4,
+            ue_ipv6,
+            upf_ipv4,
+            &sm_context.qos_flows,
+            sm_context.up_security_context.as_ref(),
+        ).await {
+            Ok(pfcp_response) => {
+                sm_context.pfcp_session_id = Some(seid);
+                sm_context.state = SmContextState::Active;
+                tracing::info!(
+                    "H-SMF: PFCP session established for SUPI: {}, SEID: {}",
+                    payload.supi, seid
+                );
+
+                if let Some(ref created_pdrs) = pfcp_response.created_pdr {
+                    for created_pdr in created_pdrs {
+                        if let Some(ref f_teid) = created_pdr.local_f_teid {
+                            upf_teid = Some(f_teid.teid);
+                            upf_addr = f_teid.ipv4_address;
+                            break;
+                        }
+                    }
+                }
+
+                if upf_teid.is_none() {
+                    upf_teid = Some(seid as u32);
+                    upf_addr = Some(upf_ipv4);
+                }
+            }
+            Err(e) => {
+                IpamService::release_ip(&state.db, &sm_context.id).await.ok();
+                return Err(AppError::InternalError(format!(
+                    "H-SMF: PFCP session establishment failed for SUPI {}: {}",
+                    payload.supi, e
+                )));
+            }
+        }
+    } else {
+        sm_context.state = SmContextState::Active;
+    }
+
+    if let Some(teid) = upf_teid {
+        sm_context.upf_teid = Some(teid);
+    }
+    if let Some(addr) = upf_addr {
+        sm_context.upf_tunnel_ipv4 = Some(addr.to_string());
+    }
+
+    if let Err(e) = collection.insert_one(&sm_context).await {
+        IpamService::release_ip(&state.db, &sm_context.id).await.ok();
+        if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+            PfcpSessionManager::delete_session(pfcp_client, seid).await.ok();
+        }
+        return Err(AppError::DatabaseError(e.to_string()));
+    }
+
+    let hcn_tunnel_info = match (upf_teid, upf_addr) {
+        (Some(teid), Some(addr)) => Some(TunnelInfo {
+            ipv4_addr: Some(addr.to_string()),
+            ipv6_addr: None,
+            gtp_teid: format!("{:08X}", teid),
+        }),
+        _ => None,
+    };
+
+    let pdu_session_type_value = match sm_context.pdu_session_type {
+        PduSessionType::Ipv4 => 1,
+        PduSessionType::Ipv6 => 2,
+        PduSessionType::Ipv4v6 => 3,
+        _ => 1,
+    };
+
+    let ssc_mode_value = match sm_context.ssc_mode {
+        SscMode::Mode1 => 1,
+        SscMode::Mode2 => 2,
+        SscMode::Mode3 => 3,
+    };
+
+    let ambr_dl_kbps = sm_context.session_ambr.as_ref()
+        .and_then(|ambr| crate::services::ambr_enforcement::AmbrEnforcementService::parse_ambr_bitrate(&ambr.downlink).ok())
+        .map(|bps| bps / 1000)
+        .unwrap_or(100_000);
+    let ambr_ul_kbps = sm_context.session_ambr.as_ref()
+        .and_then(|ambr| crate::services::ambr_enforcement::AmbrEnforcementService::parse_ambr_bitrate(&ambr.uplink).ok())
+        .map(|bps| bps / 1000)
+        .unwrap_or(50_000);
+
+    let default_qfi = sm_context.qos_flows.first().map(|f| f.qfi).unwrap_or(1);
+
+    let nas_accept_msg = NasParser::build_pdu_session_establishment_accept(
+        payload.pdu_session_id,
+        1,
+        pdu_session_type_value,
+        ssc_mode_value,
+        false,
+        false,
+        sm_context.pdu_address.as_ref().and_then(|addr| addr.ipv4_addr.as_deref()),
+        sm_context.pdu_address.as_ref().and_then(|addr| addr.ipv6_addr.as_deref()),
+        ambr_dl_kbps,
+        ambr_ul_kbps,
+        default_qfi,
+    );
+
+    let encoded = general_purpose::STANDARD.encode(&nas_accept_msg);
+
+    let n1_sm_info_to_ue = Some(RefToBinaryData {
+        content_id: encoded.clone(),
+    });
+
+    let (upf_tunnel_info_data, qos_flow_list_data, session_ambr_dl_data, session_ambr_ul_data) =
+        if let (Some(teid), Some(addr)) = (upf_teid, upf_addr) {
+            let session_ambr_dl = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| ambr.downlink.parse::<u64>().ok())
+                .unwrap_or(100_000_000);
+
+            let session_ambr_ul = sm_context.session_ambr.as_ref()
+                .and_then(|ambr| ambr.uplink.parse::<u64>().ok())
+                .unwrap_or(50_000_000);
+
+            let qos_flows: Vec<crate::models::QosFlowInfo> = sm_context.qos_flows.iter()
+                .map(|flow| crate::models::QosFlowInfo { qfi: flow.qfi })
+                .collect();
+
+            (
+                Some(crate::models::UpfTunnelInfo {
+                    teid,
+                    ipv4_address: addr.to_string(),
+                }),
+                Some(qos_flows),
+                Some(session_ambr_dl),
+                Some(session_ambr_ul),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
+    let pdu_session_ref = sm_context.id.clone();
+
+    let response = PduSessionCreatedData {
+        pdu_session_type: sm_context.pdu_session_type.clone(),
+        ssc_mode: sm_context.ssc_mode.as_str().to_string(),
+        h_smf_uri: None,
+        smf_uri: None,
+        pdu_session_id: payload.pdu_session_id,
+        s_nssai: use_snssai.clone(),
+        up_cnx_state: Some(UpCnxState::Activated),
+        enable_pause_charging: Some(false),
+        ue_ipv4_address: ipv4_addr,
+        ue_ipv6_prefix: ipv6_addr,
+        dns_primary: ip_allocation.dns_primary.clone(),
+        dns_secondary: ip_allocation.dns_secondary.clone(),
+        mtu: sm_context.mtu,
+        n1_sm_info_to_ue,
+        n1_sm_msg: Some(encoded),
+        eps_pdn_cnx_info: None,
+        supported_features: None,
+        session_ambr: sm_context.session_ambr.clone(),
+        hcn_tunnel_info,
+        cn_tunnel_info: None,
+        additional_cn_tunnel_info: None,
+        dnai_list: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        ho_state: None,
+        sm_context_ref: pdu_session_ref.clone(),
+        upf_tunnel_info: upf_tunnel_info_data,
+        qos_flow_list: qos_flow_list_data,
+        session_ambr_downlink: session_ambr_dl_data,
+        session_ambr_uplink: session_ambr_ul_data,
+    };
+
+    tracing::info!(
+        "H-SMF: Created PDU Session for SUPI: {}, PSI: {}, Ref: {}, DNN: {}, Slice: SST={} SD={:?}",
+        payload.supi,
+        payload.pdu_session_id,
+        pdu_session_ref,
+        payload.dnn,
+        use_snssai.sst,
+        use_snssai.sd
+    );
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UeIpCh,
+        &payload.supi,
+        payload.pdu_session_id,
+        Some(payload.dnn.clone()),
+        Some(use_snssai.clone()),
+        Some(ip_allocation.ip_address.clone()),
+        None,
+        Some(pdu_session_ref.clone()),
+        None,
+    ).await;
+
+    let location = format!("/nsmf-pdusession/v1/pdu-sessions/{}", pdu_session_ref);
+    Ok((
+        StatusCode::CREATED,
+        [(header::LOCATION, location)],
+        Json(response),
+    ).into_response())
 }
 
 pub async fn modify_pdu_session_hsmf(
