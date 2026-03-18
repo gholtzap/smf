@@ -120,8 +120,10 @@ pub enum NgapIeType {
     PduResSetupRsp,
     PduResRelCmd,
     PduResRelRsp,
-    PduResModifyReq,
-    PduResModifyRsp,
+    #[serde(rename = "PDU_RES_MOD_REQ")]
+    PduResModReq,
+    #[serde(rename = "PDU_RES_MOD_RSP")]
+    PduResModRsp,
     PathSwitchReqAck,
     HandoverCmd,
     HandoverPrepFail,

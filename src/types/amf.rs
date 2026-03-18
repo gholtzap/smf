@@ -118,19 +118,51 @@ pub enum N1MessageClass {
 #[serde(rename_all = "camelCase")]
 pub struct N2InfoContainer {
     pub n2_information_class: N2InformationClass,
-    pub sm_info: Option<RefToBinaryData>,
-    pub ran_info: Option<RefToBinaryData>,
-    pub nrp_pa_info: Option<RefToBinaryData>,
+    pub sm_info: Option<N2SmInformation>,
+    pub ran_info: Option<N2RanInformation>,
+    pub nrppa_info: Option<RefToBinaryData>,
+    pub pws_info: Option<RefToBinaryData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "camelCase")]
+pub struct N2SmInformation {
+    pub pdu_session_id: u8,
+    pub n2_info_content: Option<N2InfoContentAmf>,
+    pub s_nssai: Option<super::Snssai>,
+    pub home_plmn_snssai: Option<super::Snssai>,
+    pub subject_to_ho: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct N2InfoContentAmf {
+    pub ngap_message_type: Option<u32>,
+    pub ngap_ie_type: Option<String>,
+    pub ngap_data: RefToBinaryData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct N2RanInformation {
+    pub n2_info_content: N2InfoContentAmf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum N2InformationClass {
-    Sm,
-    Nrppa,
-    Pws,
+    SM,
+    NRPPa,
+    PWS,
+    #[serde(rename = "PWS-BCAL")]
     PwsBcal,
+    #[serde(rename = "PWS-RF")]
     PwsRf,
+    RAN,
+    V2X,
+    PROSE,
+    TSS,
+    RSPP,
+    A2X,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,26 +286,32 @@ pub struct N1N2MsgTxfrFailureNotification {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct N2InfoNotification {
-    pub n2_info_container: N2InfoContainer,
-    pub n2_notify_subscription_id: Option<String>,
-    pub sm_info_type: Option<N2SmInfoType>,
-    pub ng_ran_cell_id: Option<String>,
+pub struct N2InformationNotification {
+    pub n2_notify_subscription_id: String,
+    #[serde(default)]
+    pub n2_info_container: Option<N2InfoContainer>,
+    #[serde(default)]
+    pub to_release_session_list: Option<Vec<u8>>,
+    #[serde(default)]
+    pub notify_reason: Option<N2InfoNotifyReason>,
+    #[serde(default)]
+    pub ran_node_id: Option<serde_json::Value>,
+    #[serde(default)]
+    pub initial_amf_name: Option<String>,
+    #[serde(default)]
+    pub an_n2_ipv4_addr: Option<String>,
+    #[serde(default)]
+    pub an_n2_ipv6_addr: Option<String>,
+    #[serde(default)]
+    pub guami: Option<super::Guami>,
+    #[serde(default)]
+    pub notify_source_ng_ran: Option<bool>,
+    #[serde(default)]
+    pub notif_correlation_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum N2SmInfoType {
-    PduResSetupRsp,
-    PduResSetupFail,
-    PduResModifyRsp,
-    PduResModifyFail,
-    PduResReleaseCmd,
-    PduResReleaseRsp,
-    PduResNotifyRel,
-    PathSwitchRequestAck,
-    PathSwitchRequestFail,
-    HandoverRequired,
-    HandoverRequestAck,
-    HandoverPreparationFail,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum N2InfoNotifyReason {
+    #[serde(rename = "HANDOVER_COMPLETED")]
+    HandoverCompleted,
 }

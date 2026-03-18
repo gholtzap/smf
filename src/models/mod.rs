@@ -222,13 +222,18 @@ pub enum N2SmInfoType {
     PduResSetupFail,
     PduResRelCmd,
     PduResRelRsp,
-    PduResModifyReq,
-    PduResModifyRsp,
-    PduResModifyFail,
+    #[serde(rename = "PDU_RES_MOD_REQ")]
+    PduResModReq,
+    #[serde(rename = "PDU_RES_MOD_RSP")]
+    PduResModRsp,
+    #[serde(rename = "PDU_RES_MOD_FAIL")]
+    PduResModFail,
     PduResNty,
     PduResNtyRel,
-    PduResModifyInd,
-    PduResModifyCfm,
+    #[serde(rename = "PDU_RES_MOD_IND")]
+    PduResModInd,
+    #[serde(rename = "PDU_RES_MOD_CFM")]
+    PduResModCfm,
     PathSwitchReq,
     PathSwitchSetupFail,
     PathSwitchReqAck,
@@ -239,6 +244,8 @@ pub enum N2SmInfoType {
     HandoverReqAck,
     HandoverResAllocFail,
     SecondaryRatUsage,
+    #[serde(rename = "PDU_RES_MOD_IND_FAIL")]
+    PduResModIndFail,
     UeContextResumeReq,
     UeContextResumeRsp,
     UeContextSuspendReq,
