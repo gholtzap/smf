@@ -1,7 +1,6 @@
   Nsmf_PDUSession (TS 29.502) — PDU Sessions (H-SMF/roaming)
   POST,/nsmf-pdusession/v1/pdu-sessions,handlers::pdu_session::create_pdu_session_hsmf (stub)
   POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/modify,handlers::pdu_session::modify_pdu_session_hsmf (stub)
-  POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/	release,handlers::pdu_session::release_pdu_session_hsmf (stub)
   POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/retrieve,handlers::pdu_session::retrieve_pdu_session_hsmf (stub)
   POST,/nsmf-pdusession/v1/pdu-sessions/:pduSessionRef/transfer-mo-data,handlers::pdu_session::transfer_mo_data_hsmf (stub)
 
