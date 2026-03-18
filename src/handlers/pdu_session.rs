@@ -870,7 +870,7 @@ async fn create_pdu_session_inner(
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
-        crate::types::EventType::UeIpChange,
+        crate::types::SmfEvent::UeIpCh,
         &payload.supi,
         payload.pdu_session_id,
         Some(payload.dnn.clone()),
@@ -2887,7 +2887,7 @@ pub async fn release_pdu_session(
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
-        crate::types::EventType::PduSesRelease,
+        crate::types::SmfEvent::PduSesRel,
         &sm_context.supi,
         sm_context.pdu_session_id,
         Some(sm_context.dnn.clone()),
@@ -2895,7 +2895,7 @@ pub async fn release_pdu_session(
         None,
         None,
         Some(sm_context_ref.clone()),
-        Some(crate::types::Cause::RegularDeactivation),
+        Some(crate::types::PduSessionStatus::Released),
     ).await;
 
     IpamService::release_ip(&state.db, &sm_context_ref)
@@ -3541,7 +3541,7 @@ async fn handle_ho_completed(
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
-        crate::types::EventType::UpPathChange,
+        crate::types::SmfEvent::UpPathCh,
         &sm_context.supi,
         sm_context.pdu_session_id,
         Some(sm_context.dnn.clone()),
@@ -3907,7 +3907,7 @@ pub async fn handle_handover_notify(
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
-        crate::types::EventType::UpPathChange,
+        crate::types::SmfEvent::UpPathCh,
         &sm_context.supi,
         sm_context.pdu_session_id,
         Some(sm_context.dnn.clone()),

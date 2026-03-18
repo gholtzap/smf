@@ -121,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/sm-contexts/:smContextRef/qos-rules/modify", post(handlers::qos_rule::modify_qos_rule))
         .route("/admin/sm-contexts/:smContextRef/qos-rules/apply", post(handlers::qos_rule::apply_qos_rules))
         .route("/nsmf-event-exposure/v1/subscriptions", post(handlers::event_exposure::create_event_subscription))
+        .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", get(handlers::event_exposure::get_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", put(handlers::event_exposure::update_event_subscription))
         .route("/nsmf-event-exposure/v1/subscriptions/:subscriptionId", delete(handlers::event_exposure::delete_event_subscription))
         .route("/admin/certificates/:name/:purpose/rotate", post(handlers::certificate_rotation::rotate_certificate))
