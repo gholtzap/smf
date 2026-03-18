@@ -3039,8 +3039,15 @@ async fn handle_ho_preparing(
     let upf_ipv4 = sm_context.upf_tunnel_ipv4
         .as_deref()
         .or_else(|| sm_context.upf_address.as_deref())
-        .unwrap_or("127.0.0.1");
-    let upf_teid = sm_context.upf_teid.unwrap_or(0);
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF tunnel address available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
+    let upf_teid = sm_context.upf_teid
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF TEID available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
 
     let cn_tunnel_info = TunnelInfo {
         ipv4_addr: Some(upf_ipv4.to_string()),
@@ -3052,7 +3059,9 @@ async fn handle_ho_preparing(
         sm_context.session_ambr.as_ref().map(|a| a.downlink.parse::<u64>().unwrap_or(1000000)).unwrap_or(1000000),
         sm_context.session_ambr.as_ref().map(|a| a.uplink.parse::<u64>().unwrap_or(1000000)).unwrap_or(1000000),
         upf_teid,
-        upf_ipv4.parse().unwrap_or(std::net::Ipv4Addr::LOCALHOST),
+        upf_ipv4.parse().map_err(|e| AppError::ValidationError(format!(
+            "Invalid UPF tunnel IPv4 '{}': {}", upf_ipv4, e
+        )))?,
         sm_context.qos_flows.first().map(|f| f.qfi).unwrap_or(1),
     ).map_err(|e| AppError::ValidationError(format!("Failed to encode NGAP transfer: {}", e)))?;
 
@@ -3076,13 +3085,13 @@ async fn handle_ho_preparing(
         n1_sm_info_to_ue: None,
         n1_sm_msg: None,
         n2_sm_info: Some(N2SmInfo {
-            content_id: "n2-handover-command".to_string(),
+            content_id: "n2-pdu-res-setup-req".to_string(),
             n2_info_content: N2InfoContent {
-                ngap_ie_type: NgapIeType::HandoverCmd,
+                ngap_ie_type: NgapIeType::PduResSetupReq,
                 ngap_data: n2_data,
             },
         }),
-        n2_sm_info_type: Some(N2SmInfoType::HandoverCmd),
+        n2_sm_info_type: Some(N2SmInfoType::PduResSetupReq),
         eps_bearer_info: None,
         supported_features: None,
         ho_state: Some(HoState::Preparing),
@@ -3169,6 +3178,27 @@ async fn handle_ho_prepared(
         sec
     });
 
+    let upf_ipv4 = sm_context.upf_tunnel_ipv4
+        .as_deref()
+        .or_else(|| sm_context.upf_address.as_deref())
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF tunnel address available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
+    let upf_teid = sm_context.upf_teid
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF TEID available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
+
+    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        PfcpSessionManager::deactivate_downlink(pfcp_client, pfcp_session_id).await
+            .map_err(|e| AppError::InternalError(format!(
+                "Failed to buffer DL at UPF during handover for SUPI: {}, PSI: {}: {}",
+                sm_context.supi, sm_context.pdu_session_id, e
+            )))?;
+    }
+
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
@@ -3202,21 +3232,6 @@ async fn handle_ho_prepared(
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        if let Err(e) = PfcpSessionManager::deactivate_downlink(pfcp_client, pfcp_session_id).await {
-            tracing::error!(
-                "Failed to buffer DL at UPF during handover for SUPI: {}, PSI: {}: {}",
-                sm_context.supi, sm_context.pdu_session_id, e
-            );
-        }
-    }
-
-    let upf_ipv4 = sm_context.upf_tunnel_ipv4
-        .as_deref()
-        .or_else(|| sm_context.upf_address.as_deref())
-        .unwrap_or("127.0.0.1");
-    let upf_teid = sm_context.upf_teid.unwrap_or(0);
 
     let cn_tunnel_info = TunnelInfo {
         ipv4_addr: Some(upf_ipv4.to_string()),
@@ -3341,6 +3356,27 @@ pub async fn handle_handover_request_ack(
         sec
     });
 
+    let upf_ipv4 = sm_context.upf_tunnel_ipv4
+        .as_deref()
+        .or_else(|| sm_context.upf_address.as_deref())
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF tunnel address available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
+    let upf_teid = sm_context.upf_teid
+        .ok_or_else(|| AppError::ValidationError(format!(
+            "No UPF TEID available for SUPI: {}, PSI: {}",
+            sm_context.supi, sm_context.pdu_session_id
+        )))?;
+
+    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        PfcpSessionManager::deactivate_downlink(pfcp_client, pfcp_session_id).await
+            .map_err(|e| AppError::InternalError(format!(
+                "Failed to buffer DL at UPF during handover for SUPI: {}, PSI: {}: {}",
+                sm_context.supi, sm_context.pdu_session_id, e
+            )))?;
+    }
+
     let mut update_doc = doc! {
         "handover_state": mongodb::bson::to_bson(&HoState::Prepared)
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
@@ -3374,21 +3410,6 @@ pub async fn handle_handover_request_ack(
         )
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    if let (Some(ref pfcp_client), Some(pfcp_session_id)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
-        if let Err(e) = PfcpSessionManager::deactivate_downlink(pfcp_client, pfcp_session_id).await {
-            tracing::error!(
-                "Failed to buffer DL at UPF during handover for SUPI: {}, PSI: {}: {}",
-                sm_context.supi, sm_context.pdu_session_id, e
-            );
-        }
-    }
-
-    let upf_ipv4 = sm_context.upf_tunnel_ipv4
-        .as_deref()
-        .or_else(|| sm_context.upf_address.as_deref())
-        .unwrap_or("127.0.0.1");
-    let upf_teid = sm_context.upf_teid.unwrap_or(0);
 
     let cn_tunnel_info = TunnelInfo {
         ipv4_addr: Some(upf_ipv4.to_string()),
@@ -3452,6 +3473,8 @@ async fn handle_ho_completed(
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
+
+    update_doc.insert("source_an_tunnel_info", mongodb::bson::Bson::Null);
 
     let an_tunnel_info = payload.an_tunnel_info.as_ref()
         .or(sm_context.an_tunnel_info.as_ref());
@@ -3819,6 +3842,8 @@ pub async fn handle_handover_notify(
             .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
         "updated_at": mongodb::bson::DateTime::now()
     };
+
+    update_doc.insert("source_an_tunnel_info", mongodb::bson::Bson::Null);
 
     if payload.an_tunnel_info.is_some() {
         update_doc.insert(
