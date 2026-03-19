@@ -3964,21 +3964,6 @@ pub async fn handle_handover_notify(
     }))
 }
 
-fn not_implemented_response(operation: &str) -> Response {
-    let body = serde_json::json!({
-        "type": "https://httpstatuses.io/501",
-        "title": "Not Implemented",
-        "status": 501,
-        "detail": format!("{} is not yet implemented", operation),
-        "cause": "NOT_IMPLEMENTED"
-    });
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        [(header::CONTENT_TYPE, "application/problem+json")],
-        Json(body),
-    ).into_response()
-}
-
 pub async fn send_mo_data(
     State(state): State<AppState>,
     Path(sm_context_ref): Path<String>,
@@ -5529,8 +5514,312 @@ pub async fn retrieve_pdu_session_hsmf(
 }
 
 pub async fn transfer_mo_data_hsmf(
-    State(_state): State<AppState>,
-    Path(_pdu_session_ref): Path<String>,
-) -> Response {
-    not_implemented_response("TransferMoData (H-SMF)")
+    State(state): State<AppState>,
+    Path(pdu_session_ref): Path<String>,
+    Json(payload): Json<SendMoDataReqData>,
+) -> Result<Response, AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let sm_context = collection
+        .find_one(doc! { "_id": &pdu_session_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("PDU Session {} not found", pdu_session_ref)))?;
+
+    tracing::info!(
+        "H-SMF TransferMoData - SUPI: {}, PSI: {}, Ref: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        pdu_session_ref
+    );
+
+    if let Some(ref ue_location) = payload.ue_location {
+        collection
+            .update_one(
+                doc! { "_id": &pdu_session_ref },
+                doc! {
+                    "$set": {
+                        "ue_location": mongodb::bson::to_bson(ue_location)
+                            .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }
+                },
+            )
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    }
+
+    if let Some(ref counter) = payload.mo_exp_data_counter {
+        tracing::info!(
+            "H-SMF MO Exception Data Counter: {} for SUPI: {}",
+            counter.counter,
+            sm_context.supi
+        );
+    }
+
+    let mo_data = general_purpose::STANDARD
+        .decode(&payload.mo_data.content_id)
+        .map_err(|e| AppError::ValidationError(format!("Failed to decode MO data: {}", e)))?;
+
+    if mo_data.is_empty() {
+        return Err(AppError::ValidationError("MO data is empty".to_string()));
+    }
+
+    let header = NasParser::parse_sm_header(&mo_data)
+        .map_err(AppError::ValidationError)?;
+
+    if header.pdu_session_id != sm_context.pdu_session_id {
+        tracing::warn!(
+            "H-SMF PDU Session ID mismatch: NAS header {} vs context {}",
+            header.pdu_session_id,
+            sm_context.pdu_session_id
+        );
+    }
+
+    match header.message_type {
+        NasMessageType::PduSessionModificationRequest => {
+            hsmf_transfer_handle_modification(
+                state, pdu_session_ref, sm_context, &mo_data,
+            ).await?;
+        }
+        NasMessageType::PduSessionReleaseRequest => {
+            hsmf_transfer_handle_release(
+                state, pdu_session_ref, sm_context, &mo_data,
+            ).await?;
+        }
+        NasMessageType::PduSessionReleaseComplete => {
+            hsmf_transfer_handle_release_complete(
+                state, pdu_session_ref, sm_context,
+            ).await?;
+        }
+        NasMessageType::PduSessionModificationComplete => {
+            tracing::info!(
+                "H-SMF PDU Session Modification Complete via TransferMoData - SUPI: {}, PSI: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+        }
+        NasMessageType::PduSessionModificationCommandReject => {
+            tracing::warn!(
+                "H-SMF UE rejected PDU Session Modification via TransferMoData - SUPI: {}, PSI: {}",
+                sm_context.supi,
+                sm_context.pdu_session_id
+            );
+        }
+        _ => {
+            tracing::warn!(
+                "Unexpected NAS SM message type {:?} in H-SMF TransferMoData - SUPI: {}",
+                header.message_type,
+                sm_context.supi
+            );
+            return Err(AppError::ValidationError(format!(
+                "Unsupported NAS SM message type in TransferMoData: {:?}",
+                header.message_type
+            )));
+        }
+    }
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn hsmf_transfer_handle_modification(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    n1_data: &[u8],
+) -> Result<(), AppError> {
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+
+    let mod_request = NasParser::parse_pdu_session_modification_request(n1_data)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "H-SMF UE-initiated Modification via TransferMoData - SUPI: {}, PSI: {}, PTI: {}, QoS rules: {}, QoS flow descs: {}",
+        sm_context.supi,
+        mod_request.pdu_session_id,
+        mod_request.pti,
+        mod_request.requested_qos_rules.len(),
+        mod_request.requested_qos_flow_descriptions.len()
+    );
+
+    if !matches!(sm_context.state, SmContextState::Active) {
+        tracing::warn!(
+            "H-SMF TransferMoData modification rejected: session not active (state: {:?}) - SUPI: {}",
+            sm_context.state,
+            sm_context.supi
+        );
+        return Ok(());
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &pdu_session_ref },
+            doc! { "$set": {
+                "state": mongodb::bson::to_bson(&SmContextState::ModificationPending)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                "updated_at": mongodb::bson::DateTime::now()
+            }},
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let pf_mgr = crate::services::packet_filter::PacketFilterManager::new(Arc::new(state.db.clone()));
+    if !mod_request.requested_qos_rules.is_empty() {
+        match pf_mgr.process_nas_qos_rules(&pdu_session_ref, &mod_request.requested_qos_rules).await {
+            Ok(result) => {
+                tracing::info!(
+                    "H-SMF processed QoS rules via TransferMoData - SUPI: {}: added {} PFs, removed {} PFs",
+                    sm_context.supi,
+                    result.added_pf_ids.len(),
+                    result.removed_pf_ids.len()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "H-SMF failed to process QoS rules via TransferMoData - SUPI: {}: {}",
+                    sm_context.supi,
+                    e
+                );
+            }
+        }
+    }
+
+    let qos_mgr = QosFlowManager::new(Arc::new(state.db.clone()));
+    let mut add_qos_flows: Vec<QosFlow> = Vec::new();
+    let mut remove_qfis: Vec<u8> = Vec::new();
+
+    for desc in &mod_request.requested_qos_flow_descriptions {
+        match desc.operation_code {
+            QosFlowOperationCode::CreateNew => {
+                let five_qi = desc.parameters.iter()
+                    .find_map(|p| p.get_five_qi())
+                    .unwrap_or(9);
+                let qos_flow = state
+                    .slice_qos_policy_service
+                    .create_qos_flow_with_5qi(&sm_context.s_nssai, desc.qfi, five_qi);
+                add_qos_flows.push(qos_flow);
+            }
+            QosFlowOperationCode::Delete => {
+                remove_qfis.push(desc.qfi);
+            }
+            QosFlowOperationCode::Modify => {
+                let five_qi = desc.parameters.iter()
+                    .find_map(|p| p.get_five_qi())
+                    .unwrap_or(sm_context.qos_flows.iter()
+                        .find(|f| f.qfi == desc.qfi)
+                        .map(|f| f.five_qi)
+                        .unwrap_or(9));
+                let modified_flow = QosFlow::new_with_5qi(desc.qfi, five_qi);
+                add_qos_flows.push(modified_flow);
+            }
+        }
+    }
+
+    if !add_qos_flows.is_empty() {
+        if let Err(e) = qos_mgr.add_qos_flows(&pdu_session_ref, add_qos_flows).await {
+            tracing::warn!(
+                "H-SMF failed to add QoS flows via TransferMoData - SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    if !remove_qfis.is_empty() {
+        if let Err(e) = qos_mgr.remove_qos_flows(&pdu_session_ref, remove_qfis).await {
+            tracing::warn!(
+                "H-SMF failed to remove QoS flows via TransferMoData - SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    collection
+        .update_one(
+            doc! { "_id": &pdu_session_ref },
+            doc! { "$set": {
+                "state": mongodb::bson::to_bson(&SmContextState::Active)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                "updated_at": mongodb::bson::DateTime::now()
+            }},
+        )
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    state.notification_service.notify_pdu_session_event(
+        &state.db,
+        crate::types::SmfEvent::UpPathCh,
+        &sm_context.supi,
+        sm_context.pdu_session_id,
+        Some(sm_context.dnn.clone()),
+        Some(sm_context.s_nssai.clone()),
+        None,
+        None,
+        Some(pdu_session_ref),
+        None,
+    ).await;
+
+    Ok(())
+}
+
+async fn hsmf_transfer_handle_release(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+    n1_data: &[u8],
+) -> Result<(), AppError> {
+    let release_request = NasParser::parse_pdu_session_release_request(n1_data)
+        .map_err(AppError::ValidationError)?;
+
+    tracing::info!(
+        "H-SMF UE-initiated Release via TransferMoData - SUPI: {}, PSI: {}, PTI: {}, cause: {:?}",
+        sm_context.supi,
+        release_request.pdu_session_id,
+        release_request.pti,
+        release_request.cause
+    );
+
+    hsmf_execute_release(
+        state,
+        pdu_session_ref,
+        sm_context,
+        Some("UE_INITIATED_RELEASE".to_string()),
+    ).await?;
+
+    Ok(())
+}
+
+async fn hsmf_transfer_handle_release_complete(
+    state: AppState,
+    pdu_session_ref: String,
+    sm_context: SmContext,
+) -> Result<(), AppError> {
+    tracing::info!(
+        "H-SMF UE confirmed Release via TransferMoData - SUPI: {}, PSI: {}",
+        sm_context.supi,
+        sm_context.pdu_session_id
+    );
+
+    if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+        if let Err(e) = PfcpSessionManager::delete_session(pfcp_client, seid).await {
+            tracing::warn!(
+                "H-SMF PFCP delete failed on release complete via TransferMoData - SUPI: {}: {}",
+                sm_context.supi, e
+            );
+        }
+    }
+
+    IpamService::release_ip(&state.db, &pdu_session_ref)
+        .await
+        .map_err(|e| {
+            tracing::warn!("H-SMF IP release failed on release complete via TransferMoData - Ref {}: {}", pdu_session_ref, e);
+        })
+        .ok();
+
+    let collection: Collection<SmContext> = state.db.collection("sm_contexts");
+    collection
+        .delete_one(doc! { "_id": &pdu_session_ref })
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    Ok(())
 }
