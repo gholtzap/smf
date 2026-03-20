@@ -554,6 +554,7 @@ pub struct SmContextReleaseData {
     pub ue_location: Option<UserLocation>,
     pub ue_time_zone: Option<String>,
     pub vsmf_release_only: Option<bool>,
+    pub ismf_release_only: Option<bool>,
     pub n2_sm_info: Option<N2SmInfo>,
     pub n2_sm_info_type: Option<N2SmInfoType>,
 }

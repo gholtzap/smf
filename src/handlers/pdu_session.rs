@@ -8,7 +8,7 @@ use mongodb::{bson::doc, Collection};
 use futures::TryStreamExt;
 use base64::{Engine as _, engine::general_purpose};
 use crate::db::AppState;
-use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo, SmContextUpdateCause};
+use crate::models::{Ambr, PduSessionCreateData, PduSessionCreatedData, SmContextReleaseData, SmContextReleasedData, SmContextStatusNotification, SmContextStatusInfo, ResourceStatus, PduSessionUpdateData, PduSessionUpdatedData, SmContext, N2SmInfoType, RequestType, UpCnxState, TunnelInfo, SmContextUpdateCause};
 use crate::types::{AppError, SmContextCreateError, SmContextUpdateError, SendMoDataReqData, N2SmInfo, N2InfoContent, NgapIeType, NasParser, NasMessageType, NasQosRule, NasQosFlowDescription, QosFlowOperationCode, GsmCause, SmContextState, RefToBinaryData, PduAddress, PduSessionType, QosFlow, SscMode, HoState, SmContextRetrieveData, SmContextRetrievedData};
 use crate::models::QosFlowItem;
 use crate::services::pfcp_session::PfcpSessionManager;
@@ -3002,25 +3002,44 @@ pub async fn release_pdu_session(
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
     let release_cause = payload.as_ref().and_then(|d| d.cause.clone());
-    let is_context_transfer = release_cause.as_deref() == Some("SMF_CONTEXT_TRANSFER")
-        || release_cause.as_deref() == Some("ISMF_CONTEXT_TRANSFER");
+    let is_context_transfer = matches!(
+        release_cause.as_deref(),
+        Some("SMF_CONTEXT_TRANSFER")
+            | Some("ISMF_CONTEXT_TRANSFER")
+            | Some("CHANGED_ANCHOR_SMF")
+            | Some("CHANGED_INTERMEDIATE_SMF")
+    );
 
-    if let Some(ref data) = payload {
-        if let Some(ref loc) = data.ue_location {
-            collection
-                .update_one(
-                    doc! { "_id": &sm_context_ref },
-                    doc! {
-                        "$set": {
-                            "ue_location": mongodb::bson::to_bson(loc)
-                                .map_err(|e| AppError::DatabaseError(format!("BSON serialization failed: {}", e)))?,
-                            "updated_at": mongodb::bson::DateTime::now()
-                        }
+    let vsmf_release_only = payload.as_ref().and_then(|d| d.vsmf_release_only).unwrap_or(false);
+    let ismf_release_only = payload.as_ref().and_then(|d| d.ismf_release_only).unwrap_or(false);
+    let partial_release = vsmf_release_only || ismf_release_only;
+
+    if partial_release {
+        collection
+            .update_one(
+                doc! { "_id": &sm_context_ref },
+                doc! {
+                    "$set": {
+                        "vsmf_id": mongodb::bson::Bson::Null,
+                        "vsmf_pdu_session_uri": mongodb::bson::Bson::Null,
+                        "vcn_tunnel_info": mongodb::bson::Bson::Null,
+                        "icn_tunnel_info": mongodb::bson::Bson::Null,
+                        "updated_at": mongodb::bson::DateTime::now()
                     }
-                )
-                .await
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        }
+                }
+            )
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        tracing::info!(
+            "Partial release ({}) for SUPI: {}, PSI: {}, SM Context: {}",
+            if vsmf_release_only { "vsmfReleaseOnly" } else { "ismfReleaseOnly" },
+            sm_context.supi,
+            sm_context.pdu_session_id,
+            sm_context_ref
+        );
+
+        return Ok(StatusCode::NO_CONTENT.into_response());
     }
 
     collection
@@ -3123,7 +3142,7 @@ pub async fn release_pdu_session(
         }
     } else {
         tracing::info!(
-            "SMF context transfer release - skipping PCF/CHF cleanup for SUPI: {}, PSI: {}",
+            "Context transfer release - skipping PCF/CHF cleanup for SUPI: {}, PSI: {}",
             sm_context.supi,
             sm_context.pdu_session_id
         );
@@ -3149,42 +3168,12 @@ pub async fn release_pdu_session(
         })
         .ok();
 
+    let small_data_rate_status = sm_context.small_data_rate_status.clone();
+
     collection
         .delete_one(doc! { "_id": &sm_context_ref })
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    if !is_context_transfer {
-        if let Some(ref status_uri) = sm_context.sm_context_status_uri {
-            let client = reqwest::Client::new();
-            let notification = SmContextStatusNotification {
-                status_info: SmContextStatusInfo {
-                    resource_status: ResourceStatus::Released,
-                    cause: release_cause,
-                },
-            };
-            let uri = status_uri.clone();
-            tokio::spawn(async move {
-                match client.post(&uri).json(&notification).send().await {
-                    Ok(resp) => {
-                        tracing::info!(
-                            "SmContextStatusNotification sent to AMF, status: {}",
-                            resp.status()
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to send SmContextStatusNotification to AMF: {}", e);
-                    }
-                }
-            });
-        }
-    } else {
-        tracing::info!(
-            "SMF context transfer release - skipping AMF notification for SUPI: {}, PSI: {}",
-            sm_context.supi,
-            sm_context.pdu_session_id
-        );
-    }
 
     tracing::info!(
         "Released PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, transfer: {}",
@@ -3194,7 +3183,15 @@ pub async fn release_pdu_session(
         is_context_transfer
     );
 
-    Ok(StatusCode::NO_CONTENT.into_response())
+    if small_data_rate_status.is_some() {
+        let response_data = SmContextReleasedData {
+            small_data_rate_status,
+            apn_rate_status: None,
+        };
+        Ok((StatusCode::OK, Json(response_data)).into_response())
+    } else {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    }
 }
 
 pub async fn list_ue_pdu_sessions(
