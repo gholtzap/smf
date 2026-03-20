@@ -4,7 +4,6 @@ pub mod nidd;
 pub mod nrf_notification;
 pub mod qos_rule;
 pub mod amf_callback;
-pub mod amf_smf_coordination;
 pub mod certificate_rotation;
 pub mod certificate_auto_rotation;
 pub mod certificate_audit;

@@ -1,7 +1,3 @@
-  Nsmf_PDUSession — Non-standard (AMF-SMF coordination)
-  POST,/nsmf-pdusession/v1/sm-contexts/retrieve,handlers::amf_smf_coordination::retrieve_sm_context_for_amf
-  POST,/nsmf-pdusession/v1/sm-contexts/release-notify,handlers::amf_smf_coordination::release_sm_context_on_transfer
-
   Callbacks (public, no auth)
   GET,/health,health_check
 

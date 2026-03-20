@@ -207,6 +207,10 @@ async fn create_pdu_session_inner(
         return handle_inter_smf_handover_create(state, payload, collection).await;
     }
 
+    if payload.smf_transfer_ind == Some(true) {
+        return handle_smf_context_transfer_create(state, payload, collection).await;
+    }
+
     let mut sm_context = SmContext::new(&payload);
 
     if let Some(ref sub_pdu_types) = subscriber_pdu_types {
@@ -1246,6 +1250,227 @@ async fn handle_inter_smf_handover_create(
 
     tracing::info!(
         "Inter-SMF handover context created - SUPI: {}, PSI: {}, SM Context: {}, hoState: PREPARING",
+        sm_context.supi,
+        sm_context.pdu_session_id,
+        sm_context.id
+    );
+
+    let location = format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id);
+    Ok((
+        StatusCode::CREATED,
+        [(header::LOCATION, location)],
+        Json(response),
+    ).into_response())
+}
+
+async fn handle_smf_context_transfer_create(
+    state: AppState,
+    payload: PduSessionCreateData,
+    collection: Collection<SmContext>,
+) -> Result<Response, AppError> {
+    let source_ctx = payload.source_sm_context.as_ref()
+        .ok_or_else(|| AppError::ValidationError(
+            "sourceSmContext is required when smfTransferInd is true".to_string()
+        ))?;
+
+    tracing::info!(
+        "SMF context transfer create - SUPI: {}, PSI: {}, Source SMF: {:?}",
+        payload.supi,
+        payload.pdu_session_id,
+        payload.source_smf_id
+    );
+
+    let is_emergency = matches!(
+        payload.request_type,
+        Some(RequestType::InitialEmergencyRequest) | Some(RequestType::ExistingEmergencyPduSession)
+    );
+
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let mut sm_context = SmContext {
+        id: new_id.clone(),
+        supi: payload.supi.clone(),
+        gpsi: payload.gpsi.clone(),
+        pei: payload.pei.clone(),
+        pdu_session_id: source_ctx.pdu_session_id,
+        dnn: source_ctx.dnn.clone(),
+        s_nssai: source_ctx.s_nssai.clone(),
+        pdu_session_type: source_ctx.pdu_session_type.clone(),
+        ssc_mode: source_ctx.ssc_mode,
+        state: SmContextState::ActivePending,
+        pdu_address: source_ctx.pdu_address.clone(),
+        pfcp_session_id: None,
+        pcf_policy_id: source_ctx.pcf_policy_id.clone(),
+        chf_charging_ref: source_ctx.chf_charging_ref.clone(),
+        qos_flows: source_ctx.qos_flows.clone(),
+        packet_filters: source_ctx.packet_filters.clone(),
+        qos_rules: source_ctx.qos_rules.clone(),
+        mtu: source_ctx.mtu,
+        an_type: payload.an_type.clone(),
+        rat_type: payload.rat_type.clone(),
+        an_tunnel_info: source_ctx.an_tunnel_info.clone(),
+        source_an_tunnel_info: None,
+        ue_location: payload.ue_location.clone().or(source_ctx.ue_location.clone()),
+        handover_state: None,
+        is_emergency,
+        request_type: payload.request_type.clone(),
+        up_security_context: source_ctx.up_security_context.clone(),
+        ue_security_capabilities: source_ctx.ue_security_capabilities.clone(),
+        session_ambr: source_ctx.session_ambr.clone(),
+        upf_address: None,
+        upf_teid: None,
+        upf_tunnel_ipv4: None,
+        serving_nf_id: payload.serving_nf_id.clone(),
+        sm_context_status_uri: payload.sm_context_status_uri.clone(),
+        guami: payload.guami.clone(),
+        serving_network: payload.serving_network.clone(),
+        small_data_rate_status: None,
+        dnai: None,
+        notification_info_list: None,
+        vsmf_id: None,
+        vsmf_pdu_session_uri: payload.vsmf_pdu_session_uri.clone(),
+        vcn_tunnel_info: payload.vcn_tunnel_info.clone(),
+        icn_tunnel_info: payload.icn_tunnel_info.clone(),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+
+    let mut upf_teid: Option<u32> = None;
+    let mut upf_addr: Option<std::net::Ipv4Addr> = None;
+
+    if let Some(ref pfcp_client) = state.pfcp_client {
+        let seid = PfcpSessionManager::generate_seid(&sm_context.id, sm_context.pdu_session_id);
+        let upf_ipv4: std::net::Ipv4Addr = pfcp_client.upf_address().ip().to_string().parse().map_err(|e| {
+            AppError::ValidationError(format!("Invalid UPF IPv4 address: {}", e))
+        })?;
+
+        sm_context.upf_address = Some(upf_ipv4.to_string());
+
+        let ue_ipv4 = sm_context.pdu_address.as_ref()
+            .and_then(|addr| addr.ipv4_addr.as_ref())
+            .and_then(|ip| ip.parse::<std::net::Ipv4Addr>().ok());
+
+        let ue_ipv6: Option<std::net::Ipv6Addr> = sm_context.pdu_address.as_ref()
+            .and_then(|addr| addr.ipv6_addr.as_ref())
+            .and_then(|prefix| prefix.split('/').next().and_then(|s| s.parse().ok()));
+
+        match PfcpSessionManager::establish_session(
+            pfcp_client,
+            seid,
+            ue_ipv4,
+            ue_ipv6,
+            upf_ipv4,
+            &sm_context.qos_flows,
+            sm_context.up_security_context.as_ref(),
+        ).await {
+            Ok(pfcp_response) => {
+                sm_context.pfcp_session_id = Some(seid);
+                sm_context.state = SmContextState::Active;
+                tracing::info!(
+                    "PFCP session established for SMF transfer - SUPI: {}, SEID: {}",
+                    sm_context.supi,
+                    seid
+                );
+
+                if let Some(ref created_pdrs) = pfcp_response.created_pdr {
+                    for created_pdr in created_pdrs {
+                        if let Some(ref f_teid) = created_pdr.local_f_teid {
+                            upf_teid = Some(f_teid.teid);
+                            upf_addr = f_teid.ipv4_address;
+                            break;
+                        }
+                    }
+                }
+
+                if upf_teid.is_none() {
+                    upf_teid = Some(seid as u32);
+                    upf_addr = Some(upf_ipv4);
+                }
+            }
+            Err(e) => {
+                return Err(AppError::InternalError(format!(
+                    "PFCP session establishment failed during SMF transfer for SUPI {}: {}",
+                    payload.supi, e
+                )));
+            }
+        }
+    } else {
+        sm_context.state = SmContextState::Active;
+    }
+
+    if let Some(teid) = upf_teid {
+        sm_context.upf_teid = Some(teid);
+    }
+    if let Some(addr) = upf_addr {
+        sm_context.upf_tunnel_ipv4 = Some(addr.to_string());
+    }
+
+    if let Err(e) = collection.insert_one(&sm_context).await {
+        if let (Some(ref pfcp_client), Some(seid)) = (&state.pfcp_client, sm_context.pfcp_session_id) {
+            PfcpSessionManager::delete_session(pfcp_client, seid).await.ok();
+        }
+        return Err(AppError::DatabaseError(e.to_string()));
+    }
+
+    let cn_tunnel_info = match (upf_teid, upf_addr) {
+        (Some(teid), Some(addr)) => Some(TunnelInfo {
+            ipv4_addr: Some(addr.to_string()),
+            ipv6_addr: None,
+            gtp_teid: format!("{:08x}", teid),
+        }),
+        _ => None,
+    };
+
+    let upf_tunnel_info_data = match (upf_teid, upf_addr) {
+        (Some(teid), Some(addr)) => Some(crate::models::UpfTunnelInfo {
+            teid,
+            ipv4_address: addr.to_string(),
+        }),
+        _ => None,
+    };
+
+    let qos_flow_list_data: Option<Vec<crate::models::QosFlowInfo>> = Some(
+        sm_context.qos_flows.iter()
+            .map(|flow| crate::models::QosFlowInfo { qfi: flow.qfi })
+            .collect()
+    );
+
+    let response = PduSessionCreatedData {
+        pdu_session_type: sm_context.pdu_session_type.clone(),
+        ssc_mode: sm_context.ssc_mode.as_str().to_string(),
+        h_smf_uri: None,
+        smf_uri: Some(format!("/nsmf-pdusession/v1/sm-contexts/{}", sm_context.id)),
+        pdu_session_id: sm_context.pdu_session_id,
+        s_nssai: sm_context.s_nssai.clone(),
+        up_cnx_state: Some(UpCnxState::Activated),
+        enable_pause_charging: Some(false),
+        ue_ipv4_address: sm_context.pdu_address.as_ref().and_then(|a| a.ipv4_addr.clone()),
+        ue_ipv6_prefix: sm_context.pdu_address.as_ref().and_then(|a| a.ipv6_addr.clone()),
+        dns_primary: sm_context.pdu_address.as_ref().and_then(|a| a.dns_primary.clone()),
+        dns_secondary: sm_context.pdu_address.as_ref().and_then(|a| a.dns_secondary.clone()),
+        mtu: sm_context.mtu,
+        n1_sm_info_to_ue: None,
+        n1_sm_msg: None,
+        eps_pdn_cnx_info: None,
+        supported_features: None,
+        session_ambr: sm_context.session_ambr.clone(),
+        hcn_tunnel_info: None,
+        cn_tunnel_info,
+        additional_cn_tunnel_info: None,
+        dnai_list: None,
+        n2_sm_info: None,
+        n2_sm_info_type: None,
+        ho_state: None,
+        sm_context_ref: sm_context.id.clone(),
+        upf_tunnel_info: upf_tunnel_info_data,
+        qos_flow_list: qos_flow_list_data,
+        session_ambr_downlink: sm_context.session_ambr.as_ref()
+            .and_then(|ambr| ambr.downlink.parse::<u64>().ok()),
+        session_ambr_uplink: sm_context.session_ambr.as_ref()
+            .and_then(|ambr| ambr.uplink.parse::<u64>().ok()),
+    };
+
+    tracing::info!(
+        "SMF context transfer created - SUPI: {}, PSI: {}, SM Context: {}",
         sm_context.supi,
         sm_context.pdu_session_id,
         sm_context.id
@@ -2776,6 +3001,10 @@ pub async fn release_pdu_session(
         .map_err(|e| AppError::DatabaseError(e.to_string()))?
         .ok_or_else(|| AppError::NotFound(format!("SM Context {} not found", sm_context_ref)))?;
 
+    let release_cause = payload.as_ref().and_then(|d| d.cause.clone());
+    let is_context_transfer = release_cause.as_deref() == Some("SMF_CONTEXT_TRANSFER")
+        || release_cause.as_deref() == Some("ISMF_CONTEXT_TRANSFER");
+
     if let Some(ref data) = payload {
         if let Some(ref loc) = data.ue_location {
             collection
@@ -2827,72 +3056,78 @@ pub async fn release_pdu_session(
         }
     }
 
-    if let (Some(ref pcf_client), Some(ref policy_id)) = (&state.pcf_client, &sm_context.pcf_policy_id) {
-        let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
+    if !is_context_transfer {
+        if let (Some(ref pcf_client), Some(ref policy_id)) = (&state.pcf_client, &sm_context.pcf_policy_id) {
+            let pcf_uri = std::env::var("PCF_URI").unwrap_or_default();
 
-        match pcf_client.delete_sm_policy(&pcf_uri, policy_id).await {
-            Ok(_) => {
-                tracing::info!(
-                    "SM policy deleted for SUPI: {}, Policy ID: {}",
-                    sm_context.supi,
-                    policy_id
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to delete SM policy for SUPI: {}: {}, proceeding with cleanup",
-                    sm_context.supi,
-                    e
-                );
-            }
-        }
-    }
-
-    if let (Some(ref chf_client), Some(ref charging_ref)) = (&state.chf_client, &sm_context.chf_charging_ref) {
-        let chf_uri = std::env::var("CHF_URI").unwrap_or_default();
-
-        let nf_identification = crate::types::chf::NfIdentification {
-            nf_name: format!("SMF-{}", std::env::var("NF_INSTANCE_ID").unwrap_or_else(|_| "unknown".to_string())),
-            nf_ip_v4_address: Some(std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())),
-            nf_ip_v6_address: None,
-            nf_plmn_id: None,
-            nf_fqdn: None,
-        };
-
-        let charging_request = crate::types::chf::ChargingDataRequest {
-            subscriber_identifier: sm_context.supi.clone(),
-            nf_consumer_identification: nf_identification,
-            invocation_time_stamp: chrono::Utc::now().to_rfc3339(),
-            invocation_sequence_number: 1,
-            one_time_event: Some(false),
-            one_time_event_type: None,
-            notify_uri: None,
-            multipleunit_usage: None,
-            triggers: Some(vec![crate::types::chf::Trigger::StopOfServiceDataFlow]),
-            pdu_session_charging_information: None,
-            roaming_qbc_information: None,
-            tenant_identifier: None,
-        };
-
-        match chf_client.release_charging_session(&chf_uri, charging_ref, charging_request).await {
-            Ok(_) => {
-                tracing::info!(
-                    "Charging session released for SUPI: {}, Charging Ref: {}",
-                    sm_context.supi,
-                    charging_ref
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to release charging session for SUPI: {}: {}, proceeding with cleanup",
-                    sm_context.supi,
-                    e
-                );
+            match pcf_client.delete_sm_policy(&pcf_uri, policy_id).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "SM policy deleted for SUPI: {}, Policy ID: {}",
+                        sm_context.supi,
+                        policy_id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to delete SM policy for SUPI: {}: {}, proceeding with cleanup",
+                        sm_context.supi,
+                        e
+                    );
+                }
             }
         }
-    }
 
-    let release_cause = payload.as_ref().and_then(|d| d.cause.clone());
+        if let (Some(ref chf_client), Some(ref charging_ref)) = (&state.chf_client, &sm_context.chf_charging_ref) {
+            let chf_uri = std::env::var("CHF_URI").unwrap_or_default();
+
+            let nf_identification = crate::types::chf::NfIdentification {
+                nf_name: format!("SMF-{}", std::env::var("NF_INSTANCE_ID").unwrap_or_else(|_| "unknown".to_string())),
+                nf_ip_v4_address: Some(std::env::var("SMF_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())),
+                nf_ip_v6_address: None,
+                nf_plmn_id: None,
+                nf_fqdn: None,
+            };
+
+            let charging_request = crate::types::chf::ChargingDataRequest {
+                subscriber_identifier: sm_context.supi.clone(),
+                nf_consumer_identification: nf_identification,
+                invocation_time_stamp: chrono::Utc::now().to_rfc3339(),
+                invocation_sequence_number: 1,
+                one_time_event: Some(false),
+                one_time_event_type: None,
+                notify_uri: None,
+                multipleunit_usage: None,
+                triggers: Some(vec![crate::types::chf::Trigger::StopOfServiceDataFlow]),
+                pdu_session_charging_information: None,
+                roaming_qbc_information: None,
+                tenant_identifier: None,
+            };
+
+            match chf_client.release_charging_session(&chf_uri, charging_ref, charging_request).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Charging session released for SUPI: {}, Charging Ref: {}",
+                        sm_context.supi,
+                        charging_ref
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to release charging session for SUPI: {}: {}, proceeding with cleanup",
+                        sm_context.supi,
+                        e
+                    );
+                }
+            }
+        }
+    } else {
+        tracing::info!(
+            "SMF context transfer release - skipping PCF/CHF cleanup for SUPI: {}, PSI: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id
+        );
+    }
 
     state.notification_service.notify_pdu_session_event(
         &state.db,
@@ -2919,35 +3154,44 @@ pub async fn release_pdu_session(
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    if let Some(ref status_uri) = sm_context.sm_context_status_uri {
-        let client = reqwest::Client::new();
-        let notification = SmContextStatusNotification {
-            status_info: SmContextStatusInfo {
-                resource_status: ResourceStatus::Released,
-                cause: release_cause,
-            },
-        };
-        let uri = status_uri.clone();
-        tokio::spawn(async move {
-            match client.post(&uri).json(&notification).send().await {
-                Ok(resp) => {
-                    tracing::info!(
-                        "SmContextStatusNotification sent to AMF, status: {}",
-                        resp.status()
-                    );
+    if !is_context_transfer {
+        if let Some(ref status_uri) = sm_context.sm_context_status_uri {
+            let client = reqwest::Client::new();
+            let notification = SmContextStatusNotification {
+                status_info: SmContextStatusInfo {
+                    resource_status: ResourceStatus::Released,
+                    cause: release_cause,
+                },
+            };
+            let uri = status_uri.clone();
+            tokio::spawn(async move {
+                match client.post(&uri).json(&notification).send().await {
+                    Ok(resp) => {
+                        tracing::info!(
+                            "SmContextStatusNotification sent to AMF, status: {}",
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to send SmContextStatusNotification to AMF: {}", e);
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to send SmContextStatusNotification to AMF: {}", e);
-                }
-            }
-        });
+            });
+        }
+    } else {
+        tracing::info!(
+            "SMF context transfer release - skipping AMF notification for SUPI: {}, PSI: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id
+        );
     }
 
     tracing::info!(
-        "Released PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}",
+        "Released PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, transfer: {}",
         sm_context.supi,
         sm_context.pdu_session_id,
-        sm_context_ref
+        sm_context_ref,
+        is_context_transfer
     );
 
     Ok(StatusCode::NO_CONTENT.into_response())
