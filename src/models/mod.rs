@@ -315,6 +315,10 @@ pub struct SmContext {
     #[serde(default)]
     pub vsmf_pdu_session_uri: Option<String>,
     #[serde(default)]
+    pub ismf_id: Option<String>,
+    #[serde(default)]
+    pub ismf_pdu_session_uri: Option<String>,
+    #[serde(default)]
     pub vcn_tunnel_info: Option<TunnelInfo>,
     #[serde(default)]
     pub icn_tunnel_info: Option<TunnelInfo>,
@@ -371,6 +375,8 @@ impl SmContext {
             notification_info_list: None,
             vsmf_id: create_data.vsmf_id.clone(),
             vsmf_pdu_session_uri: create_data.vsmf_pdu_session_uri.clone(),
+            ismf_id: create_data.ismf_id.clone(),
+            ismf_pdu_session_uri: create_data.ismf_pdu_session_uri.clone(),
             vcn_tunnel_info: create_data.vcn_tunnel_info.clone(),
             icn_tunnel_info: create_data.icn_tunnel_info.clone(),
             created_at: Utc::now(),
@@ -553,6 +559,7 @@ pub struct SmContextReleaseData {
     pub five_g_mm_cause_value: Option<u32>,
     pub ue_location: Option<UserLocation>,
     pub ue_time_zone: Option<String>,
+    pub add_ue_location: Option<UserLocation>,
     pub vsmf_release_only: Option<bool>,
     pub ismf_release_only: Option<bool>,
     pub n2_sm_info: Option<N2SmInfo>,

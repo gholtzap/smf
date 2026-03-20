@@ -1103,6 +1103,8 @@ async fn handle_inter_smf_handover_create(
         notification_info_list: None,
         vsmf_id: None,
         vsmf_pdu_session_uri: payload.vsmf_pdu_session_uri.clone(),
+        ismf_id: None,
+        ismf_pdu_session_uri: payload.ismf_pdu_session_uri.clone(),
         vcn_tunnel_info: payload.vcn_tunnel_info.clone(),
         icn_tunnel_info: payload.icn_tunnel_info.clone(),
         created_at: chrono::Utc::now(),
@@ -1328,6 +1330,8 @@ async fn handle_smf_context_transfer_create(
         notification_info_list: None,
         vsmf_id: None,
         vsmf_pdu_session_uri: payload.vsmf_pdu_session_uri.clone(),
+        ismf_id: None,
+        ismf_pdu_session_uri: payload.ismf_pdu_session_uri.clone(),
         vcn_tunnel_info: payload.vcn_tunnel_info.clone(),
         icn_tunnel_info: payload.icn_tunnel_info.clone(),
         created_at: chrono::Utc::now(),
@@ -3010,11 +3014,37 @@ pub async fn release_pdu_session(
             | Some("CHANGED_INTERMEDIATE_SMF")
     );
 
+    if let Some(ref data) = payload {
+        let mut update_doc = doc! {};
+        if let Some(ref loc) = data.ue_location {
+            if let Ok(bson_loc) = mongodb::bson::to_bson(loc) {
+                update_doc.insert("ue_location", bson_loc);
+            }
+        }
+        if let Some(ref tz) = data.ue_time_zone {
+            update_doc.insert("ue_time_zone", tz);
+        }
+        if let Some(ref add_loc) = data.add_ue_location {
+            if let Ok(bson_loc) = mongodb::bson::to_bson(add_loc) {
+                update_doc.insert("add_ue_location", bson_loc);
+            }
+        }
+        if !update_doc.is_empty() {
+            update_doc.insert("updated_at", mongodb::bson::DateTime::now());
+            collection
+                .update_one(
+                    doc! { "_id": &sm_context_ref },
+                    doc! { "$set": update_doc },
+                )
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        }
+    }
+
     let vsmf_release_only = payload.as_ref().and_then(|d| d.vsmf_release_only).unwrap_or(false);
     let ismf_release_only = payload.as_ref().and_then(|d| d.ismf_release_only).unwrap_or(false);
-    let partial_release = vsmf_release_only || ismf_release_only;
 
-    if partial_release {
+    if vsmf_release_only {
         collection
             .update_one(
                 doc! { "_id": &sm_context_ref },
@@ -3023,6 +3053,31 @@ pub async fn release_pdu_session(
                         "vsmf_id": mongodb::bson::Bson::Null,
                         "vsmf_pdu_session_uri": mongodb::bson::Bson::Null,
                         "vcn_tunnel_info": mongodb::bson::Bson::Null,
+                        "updated_at": mongodb::bson::DateTime::now()
+                    }
+                }
+            )
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        tracing::info!(
+            "Partial release (vsmfReleaseOnly) for SUPI: {}, PSI: {}, SM Context: {}",
+            sm_context.supi,
+            sm_context.pdu_session_id,
+            sm_context_ref
+        );
+
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
+    if ismf_release_only {
+        collection
+            .update_one(
+                doc! { "_id": &sm_context_ref },
+                doc! {
+                    "$set": {
+                        "ismf_id": mongodb::bson::Bson::Null,
+                        "ismf_pdu_session_uri": mongodb::bson::Bson::Null,
                         "icn_tunnel_info": mongodb::bson::Bson::Null,
                         "updated_at": mongodb::bson::DateTime::now()
                     }
@@ -3032,8 +3087,7 @@ pub async fn release_pdu_session(
             .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         tracing::info!(
-            "Partial release ({}) for SUPI: {}, PSI: {}, SM Context: {}",
-            if vsmf_release_only { "vsmfReleaseOnly" } else { "ismfReleaseOnly" },
+            "Partial release (ismfReleaseOnly) for SUPI: {}, PSI: {}, SM Context: {}",
             sm_context.supi,
             sm_context.pdu_session_id,
             sm_context_ref
@@ -3174,6 +3228,30 @@ pub async fn release_pdu_session(
         .delete_one(doc! { "_id": &sm_context_ref })
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if let Some(ref status_uri) = sm_context.sm_context_status_uri {
+        let client = reqwest::Client::new();
+        let notification = SmContextStatusNotification {
+            status_info: SmContextStatusInfo {
+                resource_status: ResourceStatus::Released,
+                cause: release_cause.clone(),
+            },
+        };
+        let uri = status_uri.clone();
+        tokio::spawn(async move {
+            match client.post(&uri).json(&notification).send().await {
+                Ok(resp) => {
+                    tracing::info!(
+                        "SmContextStatusNotification sent to AMF, status: {}",
+                        resp.status()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to send SmContextStatusNotification to AMF: {}", e);
+                }
+            }
+        });
+    }
 
     tracing::info!(
         "Released PDU Session for SUPI: {}, PDU Session ID: {}, SM Context: {}, transfer: {}",
